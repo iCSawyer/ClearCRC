@@ -1,0 +1,2888 @@
+patch,msg,lang,relevance,informativeness,expression
+"@@ -60,13 +60,10 @@ public class MetricsManager {
+   }
+ 
+   /**
+-   * A {@link Meter} measures the rate of events over time (e.g., “requests per second”). Here we
+-   * track 1-minute moving averages.
++   * A {@link Meter} measures the rate of events over time (e.g., “requests per second”).
+    */
+   public Meter addMeter(final String name) {
+-    final Meter curr = this.registry.meter(name);
+-    this.registry.register(name + ""-gauge"", (Gauge<Double>) curr::getOneMinuteRate);
+-    return curr;
++    return this.registry.meter(name);
+   }
+ 
+   /**",Removing duplicated info: 1 minute rate values are already emitted by the meter,java,1,1,1
+"@@ -188,6 +188,11 @@ public class LocalServiceRegistryClientImpl implements ServiceRegistryClient {
+     return microserviceIdMap.get(microserviceId);
+   }
+ 
++  @Override
++  public Microservice getAggregatedMicroservice(String microserviceId) {
++    return microserviceIdMap.get(microserviceId);
++  }
++
+   @Override
+   public String registerMicroserviceInstance(MicroserviceInstance instance) {
+     Map<String, MicroserviceInstance> instanceMap = microserviceInstanceMap.get(instance.getServiceId());",do not copy code just invoke getMicroservice,java,1,1,1
+"@@ -349,11 +349,7 @@ public interface Future<T> extends Value<T> {
+      * @throws NullPointerException if unit is null.
+      */
+     static Future<Void> run(CheckedRunnable unit) {
+-        Objects.requireNonNull(unit, ""unit is null"");
+-        return Future.of(DEFAULT_EXECUTOR_SERVICE, () -> {
+-            unit.run();
+-            return null;
+-        });
++        return run(DEFAULT_EXECUTOR_SERVICE, unit);
+     }
+ 
+     /**",only deleted code is good code :-),java,1,0,0
+"@@ -14,4 +14,6 @@ public interface User extends RoleAssignee, Serializable {
+ 
+     public boolean isSuperuser();
+ 
++    public boolean isDisabled();
++
+ }","fyi, it is now possible to add a default implementation of the method and so not have to override in subclasses if they use the default.",java,1,1,1
+"@@ -196,7 +196,6 @@ public abstract class SyncTarget {
+                 smartStore.beginTransaction();
+                 for (int i = 0; i < records.length(); i++) {
+                     JSONObject record = new JSONObject(records.getJSONObject(i).toString());
+-                    cleanRecord(record);
+                     cleanAndSaveInSmartStore(syncManager.getSmartStore(), soupName, record, false);
+                 }
+                 smartStore.setTransactionSuccessful();",The next method called (cleanAndSaveInSmartStore) does a cleanRecord,java,1,0,1
+"@@ -143,4 +143,8 @@ public class EVM {
+       return operation;
+     }
+   }
++
++  public OperationRegistry getOperations() {
++    return operations;
++  }
+ }",Exposed so it can be spied upon.,java,1,1,1
+"@@ -36,7 +36,7 @@ import io.prometheus.client.exporter.HTTPServer;
+ 
+ @Component
+ public class MetricsPublisher implements ApplicationListener<ApplicationEvent> {
+-  private static final Logger LOGGER = LoggerFactory.getLogger(MetricsPublisher.class);
++  private static final Logger logger = LoggerFactory.getLogger(MetricsPublisher.class);
+ 
+   private static final String METRICS_PROMETHEUS_PORT = ""servicecomb.metrics.prometheus.port"";
+ ","why changed to logger? for static final varibles, use upper case, see this code below(METRICS_PROMETHEUS_PORT).",java,1,1,1
+"@@ -370,7 +370,7 @@ public class TestIcebergInputFormats {
+     testInputFormat.create(builder.conf()).validate(expectedRecords);
+   }
+ 
+-  private abstract static class TestInputFormat<T> {
++  public abstract static class TestInputFormat<T> {
+ 
+     private final List<IcebergSplit> splits;
+     private final List<T> records;",Why was this changed to `public`?,java,1,1,1
+"@@ -39,7 +39,7 @@ public class Java14PreviewValidator extends Java14Validator {
+         {
+             // first preview within Java 14 - https://openjdk.java.net/jeps/359
+             remove(noRecordDeclaration);
+-            add(recordAsTypeIdentifierNotAllowed);
++            add(recordAsClassAndInterfaceIdentifierNotAllowed);
+             add(recordDeclarationValidator);
+         }
+ ",Please revert this back to `TypeIdentifier` - `record` is not permitted e.g. as an enum`s identifier either.,java,1,1,1
+"@@ -361,7 +361,9 @@ public class FunctionQParser extends QParser {
+         ((FunctionQParser)subParser).setParseMultipleSources(true);
+       }
+       Query subQuery = subParser.getQuery();
+-      if (subQuery instanceof FunctionQuery) {
++      if (subQuery == null) {
++        valueSource = new DoubleConstValueSource(0.0f);
++      } else if (subQuery instanceof FunctionQuery) {
+         valueSource = ((FunctionQuery) subQuery).getValueSource();
+       } else {
+         valueSource = new QueryValueSource(subQuery, 0.0f);",Why a Double?,java,1,0,1
+"@@ -952,5 +952,19 @@ public abstract class TestExpireSnapshotsAction extends SparkTestBase {
+ 
+     checkExpirationResults(1, 1, 1, result);
+   }
++
++  @Test
++  public void testExpireOnEmptyTable() {
++
++    Set<String> deletedFiles = Sets.newHashSet();
++
++    // table has no data, testing ExpireSnapshots should not fail with no snapshot
++    ExpireSnapshotsActionResult result = Actions.forTable(table).expireSnapshots()
++            .expireOlderThan(System.currentTimeMillis())
++            .deleteWith(deletedFiles::add)
++            .execute();
++
++    checkExpirationResults(0, 0, 0, result);
++  }
+ }
+ ",nit: let's remove this extra empty line at the beginning,java,1,1,1
+"@@ -1341,7 +1341,7 @@ public class CharSeqTest {
+ 
+     @Test
+     public void shouldStartsNilOfNilWithOffsetCalculate() {
+-        assertThat(empty().startsWith(empty(), 1)).isFalse();
++        assertThat(empty().startsWith(empty(), 1)).isTrue();
+     }
+ 
+     @Test","I think this test was wrong before, other `seq`s have the value `true` here",java,1,1,1
+"@@ -60,7 +60,7 @@ public class PhpSurfaceNamer extends SurfaceNamer {
+ 
+   @Override
+   public String getClientConfigPath(Interface service) {
+-    return ""./resources/""
++    return ""/resources/""
+         + Name.upperCamel(service.getSimpleName()).join(""client_config"").toLowerUnderscore()
+         + "".json"";
+   }",I would prefer this to not have the leading slash so that it doesn't imply an absolute path.,java,1,1,1
+"@@ -114,7 +114,7 @@ public class CorePushPull {
+      * @param newMetadataSuffix suffix of the new core.metadata file to be created as part of this push
+      */
+     public BlobCoreMetadata pushToBlobStore(String currentMetadataSuffix, String newMetadataSuffix) throws Exception {
+-      long startTimeMs = System.nanoTime();
++      long startTimeMs = System.nanoTime() / 1000000;
+       SolrCore solrCore = container.getCore(pushPullData.getCoreName());
+       if (solrCore == null) {
+         throw new Exception(""Can't find core "" + pushPullData.getCoreName());",I'd consider making System.nanoTime() / 1000000 a util method in BlobStoreUtils,java,1,1,1
+"@@ -67,7 +67,6 @@ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.List;
+ import java.util.Map;
+-import java.util.Optional;
+ import java.util.Set;
+ import java.util.stream.Collectors;
+ ",There is no need to change this file since it is a test. Please revert this change.,java,1,1,1
+"@@ -76,8 +76,9 @@ public class Actions {
+    * Note that the modifier key is <b>never</b> released implicitly - either
+    * <i>keyUp(theKey)</i> or <i>sendKeys(Keys.NULL)</i>
+    * must be called to release the modifier.
+-   * @param theKey Either {@link Keys#SHIFT}, {@link Keys#ALT} or {@link Keys#CONTROL}. If the
+-   * provided key is none of those, {@link IllegalArgumentException} is thrown.
++   * @param theKey Either {@link Keys#SHIFT}, {@link Keys#ALT}, {@link Keys#CONTROL}
++   * or {@link Keys#COMMAND}. If the provided key is none of those, 
++   * {@link IllegalArgumentException} is thrown.
+    * @return A self reference.
+    */
+   public Actions keyDown(Keys theKey) {",Keys.COMMAND seems to be an alias to Keys.META. That isn't mentioned?,java,1,1,1
+"@@ -104,6 +104,14 @@ public final class BoostQuery extends Query {
+     return super.rewrite(reader);
+   }
+ 
++  @Override
++  public void visit(QueryVisitor visitor) {
++    QueryVisitor v = visitor.getSubVisitor(BooleanClause.Occur.MUST, this);
++    if (v != null) {
++      query.visit(v);
++    }
++  }
++
+   @Override
+   public String toString(String field) {
+     StringBuilder builder = new StringBuilder();",should you rather check for empty visitor here now? I guess we can assume that getSubVisitor never returns null?,java,1,1,1
+"@@ -9,14 +9,10 @@ public class ASTDeclaration extends AbstractJspNode {
+ 
+     private String name;
+ 
+-    public ASTDeclaration(int id) {
++    ASTDeclaration(int id) {
+         super(id);
+     }
+ 
+-    public ASTDeclaration(JspParser p, int id) {
+-        super(p, id);
+-    }
+-
+     /**
+      * @return Returns the name.
+      */",`setName()` can be package-private as well,java,1,0,1
+"@@ -295,7 +295,7 @@ public class SmartStoreReactBridge extends ReactContextBaseJavaModule {
+ 			final IndexSpec[] indexSpecs = IndexSpec.fromJSON(indexesJson);
+ 
+             // Get soup spec if available.
+-            final ReadableMap soupSpecObj = args.getMap(SOUP_SPEC);
++            final ReadableMap soupSpecObj = (args.hasKey(SOUP_SPEC) ? args.getMap(SOUP_SPEC) : null);
+             if (soupSpecObj != null) {
+ 
+                 // Get soup name.",getMap throws an exception if key doesn't exist,java,1,0,1
+"@@ -210,7 +210,7 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
+     // That causes the totalHits and export entries in the context to _not_ get set.
+     // The only time that really matters is when we search against an _empty_ set. That's too obscure
+     // a condition to handle as part of this patch, if someone wants to pursue it it can be reproduced with:
+-    // ant test  -Dtestcase=StreamingTest -Dtests.method=testAllValidExportTypes -Dtests.seed=10F13879D0D1D6AD -Dtests.slow=true -Dtests.locale=es-PA -Dtests.timezone=America/Bahia_Banderas -Dtests.asserts=true -Dtests.file.encoding=ISO-8859-1
++    // gradlew test  --tests *testAllValidExportTypes* -Ptests.seed=10F13879D0D1D6AD -Ptests.slow=true -Ptests.locale=es-PA -Ptests.timezone=America/Bahia_Banderas -Ptests.asserts=true -Ptests.file.encoding=ISO-8859-1
+     // You'll have to uncomment the if below to hit the null pointer exception.
+     // This is such an unusual case (i.e. an empty index) that catching this concdition here is probably OK.
+     // This came to light in the very artifical case of indexing a single doc to Cloud.",I think this should be a qualified class.method reference (much like I showed above).,java,1,1,1
+"@@ -52,6 +52,14 @@ public class TableMetadata {
+                                                PartitionSpec spec,
+                                                String location,
+                                                Map<String, String> properties) {
++    return newTableMetadata(schema, spec, location, properties, DEFAULT_TABLE_FORMAT_VERSION);
++  }
++
++  static TableMetadata newTableMetadata(Schema schema,
++                                        PartitionSpec spec,
++                                        String location,
++                                        Map<String, String> properties,
++                                        int formatVersion) {
+     // reassign all column ids to ensure consistency
+     AtomicInteger lastColumnId = new AtomicInteger(0);
+     Schema freshSchema = TypeUtil.assignFreshIds(schema, lastColumnId::incrementAndGet);",This is needed to create v2 tables in tests. It isn't public.,java,1,1,1
+"@@ -380,14 +380,7 @@ public class AuthenticationServiceBean {
+         }
+         if (tokens.size() == 1) {
+             // Normal case - one token that may or may not have expired
+-            ApiToken token = tokens.get(0);
+-            if (token.getExpireTime().before(latest)) {
+-                // Don't return an expired token which is unusable, delete it instead
+-                em.remove(token);
+-                return null;
+-            } else {
+-                return tokens.get(0);
+-            }
++            return tokens.get(0);
+         } else {
+             // We have more than one due to https://github.com/IQSS/dataverse/issues/6389 or
+             // similar, so we should delete all but one token.",so the idea is this will just return the expired token and it weon't work but user will then no to reset it?,java,1,1,1
+"@@ -185,6 +185,10 @@ final class UnzippingBytesRequestConverter implements RequestConverterFunction {
+     }
+ 
+     if (content.isEmpty()) ZipkinHttpCollector.maybeLog(""Empty POST body"", ctx, request);
++    if (content.length() == 2 && ""[]"".equals(content.toStringAscii())) {
++      ZipkinHttpCollector.maybeLog(""Empty JSON list POST body"", ctx, request);
++      content = HttpData.EMPTY_DATA;
++    }
+ 
+     byte[] result = content.array();
+     ZipkinHttpCollector.metrics.incrementBytes(result.length);",found a bug while doing this!!,java,1,1,1
+"@@ -307,4 +307,19 @@ public class OAuth2AuthorizationRequestTests {
+ 						""response_type=code&client_id=client-id&state=state&"" +
+ 						""redirect_uri=https://example.com/authorize/oauth2/code/registration-id"");
+ 	}
++
++	@Test
++	public void buildWhenAuthorizationUriIncludesEscapedQueryParameterThenAuthorizationRequestUrlIncludesIt() {
++		OAuth2AuthorizationRequest authorizationRequest =
++				TestOAuth2AuthorizationRequests.request()
++						.authorizationUri(AUTHORIZATION_URI +
++								""?claims=%7B%22userinfo%22%3A%7B%22email_verified%22%3A%7B%22essential%22%3Atrue%7D%7D%7D"").build();
++
++		assertThat(authorizationRequest.getAuthorizationRequestUri()).isNotNull();
++		assertThat(authorizationRequest.getAuthorizationRequestUri())
++				.isEqualTo(""https://provider.com/oauth2/authorize?"" +
++						""claims=%7B%22userinfo%22%3A%7B%22email_verified%22%3A%7B%22essential%22%3Atrue%7D%7D%7D&"" +
++						""response_type=code&client_id=client-id&state=state&"" +
++						""redirect_uri=https://example.com/authorize/oauth2/code/registration-id"");
++	}
+ }",Can you also add some `additionalParameters` that require encoding.,java,1,1,1
+"@@ -820,7 +820,10 @@ public class BlockchainQueries {
+                         .orElseThrow(
+                             () -> new IllegalStateException(""Could not retrieve block #"" + l)))
+             .flatMap(Collection::stream)
+-            .mapToLong(t -> t.getGasPrice().toLong())
++            // TODO: currently we omit 1559 transactions from this calculation, what should
++            //       gasPrice() return for this endpoint post-London? (substitute effective gas?)
++            .filter(t -> t.getGasPrice().isPresent())
++            .mapToLong(t -> t.getGasPrice().get().toLong())
+             .sorted()
+             .toArray();
+     return (gasCollection == null || gasCollection.length == 0)","Just a sanity check. Was this TODO supposed to be here? I mean, did we forget to do something or is this a reminder for a future change?",java,1,1,1
+"@@ -65,7 +65,17 @@ public enum Varbits
+ 	/**
+ 	 * Grand Exchange
+ 	 */
++	GRAND_EXCHANGE_ITEM_QUANTITY(4396),
++
++	/**
++	 * Type of GE offer currently being created
++	 * 0 = buy
++	 * 1 = sell
++	 */
++	GE_OFFER_CREATION_TYPE(4397),
++
+ 	GRAND_EXCHANGE_PRICE_PER_ITEM(4398),
++	GRAND_EXCHANGE_SELECTED_SLOT(4439),
+ 
+ 	/**
+ 	 * Runepouch",why? (that goes for all these varbit changes),java,0,0,0
+"@@ -211,11 +211,16 @@ public final class Helper {
+ 
+     static boolean isSystemLevelClass(ASTUserClass node) {
+         List<TypeRef> interfaces = node.getNode().getDefiningType().getCodeUnitDetails().getInterfaceTypeRefs();
++
++        boolean hasWhitelistedInterfaces = false;
+         for (TypeRef intObject : interfaces) {
+-            return isWhitelisted(intObject.getNames());
++            if (isWhitelisted(intObject.getNames())) {
++                hasWhitelistedInterfaces = true;
++                break;
++            }
+         }
+ 
+-        return false;
++        return hasWhitelistedInterfaces;
+     }
+ 
+     private static boolean isWhitelisted(List<Identifier> ids) {",`return true` would be cleaner... or am I missing the point of the rule ?,java,1,1,1
+"@@ -180,6 +180,8 @@ public class SalesforceSDKManagerWithSmartStore extends SalesforceSDKManager {
+     		if (userAccount != null && hasSmartStore(userAccount)) {
+     			DBOpenHelper.deleteDatabase(getAppContext(), userAccount);
+     		}
++    	} else {
++    		DBOpenHelper.deleteAllDatabases(getAppContext());
+     	}
+ 
+         /*",Cleaning up everything in the `Forgot Passcode` use case.,java,1,1,1
+"@@ -173,7 +173,7 @@ public class BrowserActivity extends Activity implements SessionStore.SessionCha
+             final MyGeckoViewPermission permission = new MyGeckoViewPermission();
+             permission.androidPermissionRequestCode = REQUEST_PERMISSIONS;
+             mGeckoSession.setPermissionDelegate(permission);
+-            uriValue = (uri != null ? uri.toString() : SessionStore.DEFAULT_URL);
++            uriValue = (uri != null ? uri.toString() : SessionStore.get().getHomeUri());
+             Log.e(LOGTAG, ""BrowserActivity create session and load URI from intent: "" + uriValue);
+             mGeckoSession.loadUri(uriValue);
+             mGeckoView.setSession(mGeckoSession);","Yep, we will never get a region upon first run after install unless we use something like postMessage. You will get updated region info after the geolocation request finishes in subsequest home reloads/app launches though (after adding the setRegion call to onGeolocationRequestSuccess)",java,1,1,1
+"@@ -29,12 +29,18 @@ import java.util.Collection;
+ import java.util.Collections;
+ import java.util.Set;
+ import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.LinkedBlockingDeque;
++import java.util.concurrent.ThreadPoolExecutor;
+ import java.util.concurrent.TimeUnit;
+-import java.util.concurrent.locks.ReentrantLock;
++import java.util.concurrent.locks.Lock;
++import java.util.concurrent.locks.ReadWriteLock;
++import java.util.concurrent.locks.ReentrantReadWriteLock;
+ import java.util.function.Function;
+ 
+ import com.google.common.annotations.VisibleForTesting;
+ import com.google.common.base.Stopwatch;
++import com.google.common.util.concurrent.ThreadFactoryBuilder;
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+ import org.apache.tuweni.bytes.Bytes;","Experimentally determined a while ago. Since the rocks db default lock timeout is 1000ms, I aimed for a flush size that was as big as possible that completes in under 500ms",java,1,0,1
+"@@ -43,7 +43,8 @@ public class PolyglotScriptEngine implements PhoenicisScriptEngine {
+         this.language = language;
+         this.context = Context.newBuilder(language)
+                 .allowExperimentalOptions(true)
+-                .options(options).allowHostAccess(true).build();
++                .allowHostAccess(true)
++                .options(options).build();
+     }
+ 
+     @Override",I tried to replace by `allowHostAccess(true)` by something else because it seems to be deprecated but I couldn't find a working replacement operation.,java,1,0,1
+"@@ -551,7 +551,8 @@ class CppGenerator : public BaseGenerator {
+       if (opts_.generate_object_based_api) {
+         // A convenient root unpack function.
+         auto native_name =
+-            NativeName(WrapInNameSpace(struct_def), &struct_def, opts_);
++            WrapInNameSpace(struct_def.defined_namespace,
++                            NativeName(Name(struct_def), &struct_def, opts_));
+         code_.SetValue(""UNPACK_RETURN"",
+                        GenTypeNativePtr(native_name, nullptr, false));
+         code_.SetValue(""UNPACK_TYPE"",","This construction `WrapInNameSpace(ns, NativeName(Name(),...)` repeated 4 times. It would be better to add a shortcut for it.",java,1,1,1
+"@@ -48,6 +48,7 @@ describe( 'Plugin Activation Notice', () => {
+ 		await activateSiteKit();
+ 
+ 		await page.waitForSelector( '.googlesitekit-activation' );
++		await page.waitForSelector( 'h3.googlesitekit-activation__title' );
+ 
+ 		await expect( page ).toMatchElement( 'h3.googlesitekit-activation__title', { text: 'Congratulations, the Site Kit plugin is now activated.' } );
+ ",Let's remove the `h3` from this selector (and below) and rely on the class only. The specific element isn't really important and will make the test fail unnecessarily should that change in the future.,js,1,1,1
+"@@ -0,0 +1,8 @@
++'use strict';
++function getDefaultOptionSetter(type) {
++  return function setDefaultOption(optionName, value) {
++    type.defaultOptions[optionName] = value;
++  };
++}
++
++module.exports = getDefaultOptionSetter;",Why is this function necessary? Seems like a lot of work to avoid copying a one-liner. Especially since you could just define `set()` as a function on SchemaType.prototype.,js,1,1,1
+"@@ -123,7 +123,8 @@ class SearchScreenComponent extends BaseScreenComponent {
+ 
+ 		if (!this.isMounted_) return;
+ 
+-		const parsedQuery = await SearchEngine.instance().parseQuery(query);
++		// ignore brackets when finding words to highlight
++		const parsedQuery = await SearchEngine.instance().parseQuery(query.replace(/[()]/g, ' '));
+ 		const highlightedWords = SearchEngine.instance().allParsedQueryTerms(parsedQuery);
+ 
+ 		this.props.dispatch({","This regex shows up 4 times in the code. Instead, could you create a specific function that returns what you need. I can't think of any good name for it, but maybe even ""parseQueryNoBrackets"" would be better. Then this of course would call `parseQuery` internally.",js,1,1,1
+"@@ -360,6 +360,8 @@ function addNodeToGrid(grid, vNode) {
+     const endRow = ((y + rect.height) / gridSize) | 0;
+     const endCol = ((x + rect.width) / gridSize) | 0;
+ 
++    grid._numCols = Math.max(grid._numCols ?? 0, endCol);
++
+     for (let row = startRow; row <= endRow; row++) {
+       grid.cells[row] = grid.cells[row] || [];
+ ","This feels a little off. If `_numCols` needs to be different, it should be fixed where that value is set. If it doesn't need to be changed, this should probably just be a local variable.",js,1,1,1
+"@@ -286,7 +286,7 @@ class TextEditor extends BaseEditor {
+     // TD is outside of the viewport.
+     if (!this.TD) {
+       if (!force) {
+-        this.close();
++        this.close(); // TODO shouldn't it be this.finishEditing() ?
+       }
+ 
+       return;","I guess these issues are related: #3557, #3656 and definitely to do on a separated branch.",js,0,1,1
+"@@ -24,7 +24,9 @@ describe('mongodb+srv', function () {
+         test[1].comment = test[0];
+       }
+ 
+-      it(test[1].comment, {
++      // TODO: Remove with NODE-3011
++      const maybeIt = test[1].comment.includes('loadBalanced') ? it.skip : it.only;
++      maybeIt(test[1].comment, {
+         metadata: { requires: { topology: ['single'] } },
+         test: function (done) {
+           try {",is .only actually what we want here? not just plain `it`?,js,1,1,0
+"@@ -93,6 +93,10 @@ function setup(logs) {
+                 },
+         });
+ 
++       process.on('SIGUSR2', function () {
++               log.reopenFileStreams();
++       });
++
+         module.exports.logger = logger;
+ }
+ ","Check the linting is failing, `log` is not defined. you can run locally `npm run lint` to double check.",js,1,1,1
+"@@ -0,0 +1,11 @@
++const fs = require(""fs"")
++
++const filePath = process.cwd()
++
++fs.appendFile(
++  `${filePath}/app/types.ts`,
++  ""declare module 'react' { interface StyleHTMLAttributes<T> extends React.HTMLAttributes<T> { jsx?: boolean; global?: boolean }}"",
++  function (err) {
++    if (err) throw err
++  },
++)","Is there a reason why it's a script? I mean, could we have a function, e.g. `const appendModuleDeclaration = () => {...}` and call it from within the test?",js,1,1,1
+"@@ -52,7 +52,9 @@
+         var isMultipleSelection = !(selected[0] === selected[2] && selected[1] === selected[3]);
+         if ((ctrlDown && !isMultipleSelection) || event.altKey) { //if ctrl+enter or alt+enter, add new line
+           if(that.isOpened()){
+-            that.val(that.val() + '\n');
++            var caretPosition = that.wtDom.getCaretPosition(that.TEXTAREA);
++            that.val(that.val().substr(0, caretPosition) + '\n' + that.val().substr(caretPosition));
++            that.wtDom.setCaretPosition(that.TEXTAREA, caretPosition + 1);
+             that.focus();
+           } else {
+             that.beginEditing(that.originalValue + '\n')",don't you have to remove this line (58) too?,js,1,0,1
+"@@ -747,8 +747,9 @@
+        * @param {Grid} grid grid object
+        * @param {GridColumn} column the column we want to aggregate
+        * @param {string} aggregationType of the recognised types from uiGridGroupingConstants or one of the custom aggregations from gridOptions
++       * @param {string} aggregationLabel to be used instead of the default label. If empty string is passed, label is omitted
+        */
+-      aggregateColumn: function( grid, column, aggregationType) {
++      aggregateColumn: function( grid, column, aggregationType, aggregationLabel ) {
+         if (typeof(column.grouping) !== 'undefined' && typeof(column.grouping.groupPriority) !== 'undefined' && column.grouping.groupPriority >= 0) {
+           service.ungroupColumn( grid, column );
+         }","I couldn't help but notice that you said that ""[i]f empty string is passed, label is omitted"", Is the point of this to add a way for users to be able to hide the label on the aggregate column by passing an empty string?",js,1,1,1
+"@@ -56,7 +56,7 @@ TemplateUtils.loadTemplates = async function(filePath) {
+ 		});
+ 	}
+ 
+-	return templates;
++	return templates.sort((a, b) => { return a.label.localeCompare(b.label); });
+ };
+ 
+ module.exports = TemplateUtils;",Shouldn't we sort in a case insensitive way? (not sure if localeCompare does this),js,1,1,1
+"@@ -2,12 +2,14 @@ const http = require('http');
+ const cluster = require('cluster');
+ const formidable = require('formidable');
+ const os = require('os');
++const fs = require('fs');
+ const countlyConfig = require('./config', 'dont-enclose');
+ const plugins = require('../plugins/pluginManager.js');
+ const jobs = require('./parts/jobs');
+ const log = require('./utils/log.js')('core:api');
+ const common = require('./utils/common.js');
+ const {processRequest} = require('./utils/requestProcessor');
++const versionInfo = require('../frontend/express/version.info');
+ 
+ var t = [""countly:"", ""api""];  
+ ","This is not a Promise, no need to reject, just log error",js,1,1,1
+"@@ -46,6 +46,18 @@ function virtualDOMfromNode(node, shadowId) {
+ 				);
+ 			}
+ 			return vNodeCache._tabbableElements;
++		},
++
++		// abstract Node and Element APIs so we can run axe in DOM-less
++		// environments. these are static properties in the assumption
++		// that axe does not change any of them while it runs.
++		elementNodeType: node.nodeType,
++		elementNodeName: node.nodeName,
++		elementClassName: node.className,
++		elementId: node.id,
++
++		elementGetAttribute(attrName) {
++			return node.getAttribute(attrName);
+ 		}
+ 	};
+ 	axe._cache.get('nodeMap').set(node, vNode);","I think we should normalise this, do a `.toLowerCase()` here.",js,1,1,1
+"@@ -27,7 +27,7 @@ import org.openqa.selenium.internal.Locatable;
+  */
+ public abstract class SingleKeyAction extends KeysRelatedAction {
+   protected final Keys key;
+-  private static final Keys[] MODIFIER_KEYS = {Keys.SHIFT, Keys.CONTROL, Keys.ALT};
++  private static final Keys[] MODIFIER_KEYS = {Keys.SHIFT, Keys.CONTROL, Keys.ALT, Keys.META, Keys.COMMAND, Keys.LEFT_ALT, Keys.LEFT_CONTROL, Keys.LEFT_SHIFT};
+ 
+   protected SingleKeyAction(Keyboard keyboard, Mouse mouse, Keys key) {
+     this(keyboard, mouse, null, key);","LEFT_ALT, LEFT_CONTROL, and LEFT_SHIFT should already be aliases. META could be an alias for ALT but probably isn't yet.",js,1,1,1
+"@@ -0,0 +1,15 @@
++/* global axe */
++/**
++ * Convenience function to extract primary language subtag from a given value
++ * @method getBaseLang
++ * @memberof axe.utils
++ * @instance
++ * @param {String} value value specified as lang or xml:lang attribute
++ * @return {String}
++ */
++axe.utils.getBaseLang = function getBaseLang(lang) {
++	return lang
++		.trim()
++		.split('-')[0]
++		.toLowerCase();
++};","This should be on axe.commons, not on `axe.utils`. `axe.utils` is reserved for things necessary in core.",js,1,1,1
+"@@ -68,7 +68,9 @@ describe('Server Selection (spec)', function () {
+         describe(subType, function () {
+           specTests[topologyType][subType].forEach(test => {
+             // NOTE: node does not support PossiblePrimary
+-            const maybeIt = test.name.match(/Possible/) ? it.skip : it;
++            // TODO: Re-enable LoadBalanced in NODE-3011
++            const maybeIt =
++              test.name.match(/Possible/) || topologyType === 'LoadBalanced' ? it.skip : it;
+ 
+             maybeIt(test.name, function (done) {
+               executeServerSelectionTest(test, { checkLatencyWindow: false }, done);",Will re-enable these as part of NODE-3011,js,1,0,1
+"@@ -580,6 +580,18 @@ Blockly.Blocks.defaultToolbox = '<xml id=""toolbox-categories"" style=""display: no
+         '</shadow>'+
+       '</value>'+
+     '</block>'+
++    '<block type=""operator_contains"" id=""operator_contains"">'+
++      '<value name=""STRING1"">'+
++        '<shadow type=""text"">'+
++          '<field name=""TEXT"">hello world</field>'+
++        '</shadow>'+
++      '</value>'+
++      '<value name=""STRING2"">'+
++        '<shadow type=""text"">'+
++          '<field name=""TEXT"">hello</field>'+
++        '</shadow>'+
++      '</value>'+
++    '</block>'+
+     '<block type=""operator_mod"" id=""operator_mod"">'+
+       '<value name=""NUM1"">'+
+         '<shadow type=""math_number"">'+","After looking at this in detail, I think we should switch this to `hello` and change the default for `STRING2` to `world` as this boolean reporter looks too long in the category menu.",js,1,1,1
+"@@ -52,7 +52,7 @@
+     }
+ 
+     console.log = customLog(console.log.bind(console), document.getElementById(""console-log""));
+-    console.debug = customLog(console.log.bind(console), document.getElementById(""console-log""));
++    console.debug = customLog(console.debug.bind(console), document.getElementById(""console-log""));
+     console.warn = customLog(console.warn.bind(console), document.getElementById(""console-log""));
+     console.error = customLog(console.error.bind(console), document.getElementById(""console-log""));
+   </script>",I think this used console.log for compatibility with IE,js,1,1,1
+"@@ -88,7 +88,7 @@ class Uploader {
+         this._paused = true
+         if (this.tus) {
+           const shouldTerminate = !!this.tus.url
+-          this.tus.abort(shouldTerminate)
++          this.tus.abort(shouldTerminate).catch(() => {})
+         }
+         this.cleanUp()
+       })","The `abort` function now returns a Promise. And if `shouldTerminate` is true, this Promise can be rejected. So, to avoid a unhandled promise rejection, I added a dummy handler. Since a possible error also wasn't handled before, I think it's OK to not handle it in this case as well.",js,1,1,1
+"@@ -35,7 +35,7 @@ export function render(vnode, parent, callback) {
+ 	preactRender(vnode, parent);
+ 	if (typeof callback == 'function') callback();
+ 
+-	return vnode ? vnode._component : null;
++	return vnode ? parent._children._component : null;
+ }
+ 
+ export function hydrate(vnode, parent, callback) {",I think this is erroneous atm since we'll be returning the fragment,js,1,1,1
+"@@ -19,6 +19,10 @@ function splitString (str, splitIndex) {
+ 	return [str.substring(0, splitIndex), str.substring(splitIndex)];
+ }
+ 
++function trimRight (str) {
++	return str.replace(/\s+$/, '')
++}
++
+ /**
+  * Take a relative or absolute URL and pull it into it's indivisual pieces
+  *",Use prototype methods - `.trimRight()` or `.trimEnd()`? Need IE Support?,js,1,1,1
+"@@ -43,13 +43,12 @@ describe('valid-lang', function () {
+ 			assert.deepEqual(checkContext._data, ['lang=""en-FOO""']);
+ 		});
+ 
+-		it('should return true (and not throw) when given no options', function () {
++		it('should return false (and not throw) when given no options', function () {
+ 			var node = document.createElement('div');
+ 			node.setAttribute('lang', 'en-US');
+ 			fixture.appendChild(node);
+ 
+-			assert.isTrue(checks['valid-lang'].evaluate.call(checkContext, node));
+-			assert.deepEqual(checkContext._data, ['lang=""en-US""']);
++			assert.isFalse(checks['valid-lang'].evaluate.call(checkContext, node));
+ 		});
+ 
+ 		it('should return true if the language is badly formatted', function () {",How come the return values changed here?,js,1,1,1
+"@@ -446,15 +446,14 @@ const reducer = (state = defaultState, action) => {
+ 			}
+ 			break;
+ 
+-			// Replace all the notes with the provided array
+ 		case 'NOTE_UPDATE_ALL':
+ 			newState = Object.assign({}, state);
+ 			newState.notes = action.notes;
+ 			newState.notesSource = action.notesSource;
+ 			break;
+ 
+-			// Insert the note into the note list if it's new, or
+-			// update it within the note array if it already exists.
++		// Insert the note into the note list if it's new, or
++		// update it within the note array if it already exists.
+ 		case 'NOTE_UPDATE_ONE':
+ 			{
+ 				const modNote = action.note;",Also please remove this file.,js,1,0,1
+"@@ -420,13 +420,12 @@ describe('MongoClient', function() {
+       var configuration = this.configuration;
+       var MongoClient = configuration.require.MongoClient;
+ 
+-      try {
+-        MongoClient.connect('user:password@localhost:27017/test', function(err, client) {
+-          client.close();
+-        });
+-      } catch (err) {
++      MongoClient.connect('user:password@localhost:27017/test', function(err, client) {
++        test.notEqual(err, null);
++        test.notEqual(err, undefined);
+         done();
+-      }
++        client.close();
++      });
+     }
+   });
+ ",Should `client.close();` happen before `done()`?,js,1,1,1
+"@@ -27,7 +27,11 @@ describe('Sessions', function() {
+   });
+ 
+   it('should send endSessions for multiple sessions', {
+-    metadata: { requires: { topology: ['single'], mongodb: '>3.6.0-rc0' } },
++    metadata: {
++      requires: { topology: ['single'], mongodb: '>3.6.0-rc0' },
++      // Skipping session leak tests b/c these are explicit sessions
++      sessions: { skipLeakTests: true }
++    },
+     test: function(done) {
+       var client = this.configuration.newClient({ w: 1 }, { poolSize: 1, auto_reconnect: false });
+       client.connect((err, client) => {",what is the second command that's started here?,js,1,1,1
+"@@ -281,6 +281,9 @@ class Application extends BaseApplication {
+ 
+ 		if (['NOTE_VISIBLE_PANES_TOGGLE', 'NOTE_VISIBLE_PANES_SET'].indexOf(action.type) >= 0) {
+ 			Setting.setValue('noteVisiblePanes', newState.noteVisiblePanes);
++			const viewer = newState.noteVisiblePanes[0];
++			this.updateMenuItemStates(viewer);
++
+ 		}
+ 
+ 		if (['SIDEBAR_VISIBILITY_TOGGLE', 'SIDEBAR_VISIBILITY_SET'].indexOf(action.type) >= 0) {",unnecessary white space on 286,js,1,1,1
+"@@ -16,9 +16,16 @@ module.exports = function(environment) {
+     APP: {
+       // Here you can pass flags/options to your application instance
+       // when it is created
++    },
++
++    'simple-auth': {
++
++    },
++    'ember-cli-mirage': {
++      enabled: false
+     }
+   };
+-    
++
+ ENV.APP.manifest = {
+   enabled: true,
+   appcacheFile: ""/manifest.appcache"",",remanent of cli mirage.,js,1,0,0
+"@@ -1,5 +1,5 @@
+ module.exports = {
+-  extends: ['airbnb-base', 'plugin:vue/base'],
++  extends: ['airbnb-base'],
+   parser: '@babel/eslint-parser',
+   plugins: [
+     '@babel',","Plugin `plugin:vue/base` (`eslint-plugin-vue`) looks to be no used anymore, did you uninstall with (--save) it?",js,1,1,1
+"@@ -118,13 +118,6 @@ define(['apphost', 'globalize', 'connectionManager', 'itemHelper', 'appRouter',
+             });
+         }
+ 
+-        if (itemHelper.canConvert(item, user, connectionManager.getApiClient(item))) {
+-            commands.push({
+-                name: globalize.translate('Convert'),
+-                id: 'convert'
+-            });
+-        }
+-
+         if (item.CanDelete && options.deleteItem !== false) {
+ 
+             if (item.Type === 'Playlist' || item.Type === 'BoxSet') {","hmm, are you sure we have to remove this?",js,1,0,1
+"@@ -414,7 +414,7 @@ class Uppy {
+       throttledCalculateProgress(data)
+     })
+ 
+-    this.on('core:upload-success', (fileID, uploadResp, uploadURL) => {
++    this.on('core:upload-success', (fileID, uploadURL) => {
+       const updatedFiles = Object.assign({}, this.getState().files)
+       const updatedFile = Object.assign({}, updatedFiles[fileID], {
+         progress: Object.assign({}, updatedFiles[fileID].progress, {","I think someone specifically asked for a full response object, and it makes sense. Is this removing uploadResp, or am I missing something?",js,1,1,1
+"@@ -1,4 +1,14 @@
+-var parent = axe.commons.dom.getComposedParent(node);
+-return (['UL', 'OL'].includes(parent.nodeName.toUpperCase()) ||
+-    (parent.getAttribute('role') || '').toLowerCase() === 'list');
+-  
++const parent = axe.commons.dom.getComposedParent(node);
++
++if (!parent) {
++	return false;
++}
++
++const ALLOWED_TAGS = ['ul', 'ol'];
++const ALLOWED_ROLES = ['list'];
++
++const parentTagName = parent.nodeName.toLowerCase();
++const parentRole = (parent.getAttribute('role') || '').toLowerCase();
++const isListRole = (ALLOWED_ROLES.includes(parentRole));
++
++return ((ALLOWED_TAGS.includes(parentTagName) && (!parentRole || isListRole)) ||isListRole);",filter roles to only accept valid ARIA roles,js,1,1,1
+"@@ -38,6 +38,9 @@ try:
+ except NameError:
+     pass
+ 
++if sys.version > '3':
++    long = int
++
+ 
+ class WebElement(object):
+     """"""Represents a DOM element.",Should be `if sys.version_info[0] > 2:`,js,1,0,1
+"@@ -119,7 +119,6 @@ const validOptions = require('./operations/connect').validOptions;
+  * @param {number} [options.bufferMaxEntries=-1] Sets a cap on how many operations the driver will buffer up before giving up on getting a working connection, default is -1 which is unlimited
+  * @param {(ReadPreference|string)} [options.readPreference] The preferred read preference (ReadPreference.PRIMARY, ReadPreference.PRIMARY_PREFERRED, ReadPreference.SECONDARY, ReadPreference.SECONDARY_PREFERRED, ReadPreference.NEAREST)
+  * @param {object} [options.pkFactory] A primary key factory object for generation of custom _id keys
+- * @param {object} [options.promiseLibrary] A Promise library class the application wishes to use such as Bluebird, must be ES6 compatible
+  * @param {object} [options.readConcern] Specify a read concern for the collection (only MongoDB 3.2 or higher supported)
+  * @param {ReadConcernLevel} [options.readConcern.level='local'] Specify a read concern level for the collection operations (only MongoDB 3.2 or higher supported)
+  * @param {number} [options.maxStalenessSeconds=undefined] The max staleness to secondary reads (values under 10 seconds cannot be guaranteed)","At very least we should throw some warning when users try to do this, otherwise we might silently break user expectations. I think it's probably fine to still support `promiseLibrary` at the `MongoClient` level, and that option just internally sets the ""provided"" Promise",js,1,1,1
+"@@ -165,7 +165,7 @@ Audit.prototype.run = function (context, options, resolve, reject) {
+ 							result: axe.constants.CANTTELL,
+ 							description: 'An error occured while running this rule',
+ 							message: err.message,
+-							help: err.stack || err.message,
++							stack: err.stack,
+ 							error: err
+ 						});
+ 						res(errResult);","Does anything depend on `help` being a part of this object, or was that just for manual debugging info?",js,1,1,1
+"@@ -0,0 +1,18 @@
++package org.openqa.selenium;
++
++/**
++ * Created by James Reed on 11/04/2016.
++ * Thrown to indicate that a click was attempted on an element but was intercepted by another
++ * element on top of it
++ */
++public class InterceptingElementException extends InvalidElementStateException {
++
++  public InterceptingElementException(String message) {
++    super(message);
++  }
++
++  public InterceptingElementException(String message, Throwable cause) {
++    super(message, cause);
++  }
++
++}",We keep who wrote the code anonymous.,js,1,0,1
+"@@ -1515,6 +1515,13 @@ Collection.prototype.findOneAndReplace = function(filter, replacement, options,
+   if (replacement == null || typeof replacement !== 'object')
+     throw toError('replacement parameter must be an object');
+ 
++  // Check that there are no atomic operators
++  const keys = Object.keys(replacement);
++
++  if (keys[0][0] === '$') {
++    throw toError('The replacement document must not contain atomic operators.');
++  }
++
+   return executeOperation(this.s.topology, findOneAndReplace, [
+     this,
+     filter,",if `keys[0][0]` guaranteed to always exist? Won't this throw an exception if someone accidentally passes in an empty object for `replacement`?,js,1,1,1
+"@@ -13,7 +13,7 @@ describe('has-visible-text', function() {
+   });
+ 
+   it('should return false if there is no visible text', function() {
+-    var params = checkSetup('<object id=""target""></object>');
++    var params = checkSetup('<p id=""target""></p>');
+     assert.isFalse(
+       axe.testUtils
+         .getCheckEvaluate('has-visible-text')",Don't know why we did that. Clearly that's wrong.,js,1,1,1
+"@@ -30,7 +30,7 @@ export const refreshAuthentication = async () => {
+ 			requiredScopes,
+ 			grantedScopes,
+ 			unsatisfiedScopes = [],
+-		} = await data.get( TYPE_CORE, 'user', 'authentication', { timestamp: Date.now() } );
++		} = await data.get( TYPE_CORE, 'user', 'authentication' );
+ 
+ 		// We should really be using state management. This is terrible.
+ 		// Hang in there... we're getting to it ;)",This one can't be removed because it doesn't use `siteKitRequest` internally.,js,1,1,1
+"@@ -46,8 +46,17 @@ function getFiles (store) {
+   })
+ }
+ 
++function probe (event) {
++  sendMessageToAllClients({
++    type: 'uppy/HERE_I_AM'
++  })
++}
++
+ self.addEventListener('message', (event) => {
+   switch (event.data.type) {
++    case 'uppy/PROBE':
++      probe()
++      break
+     case 'uppy/ADD_FILE':
+       addFile(event.data.store, event.data.file)
+       break","MDN said something about using `clients.get(event.clientId)` to only send the message back to the sender, but `clientId` was undefined for me--i guess that's why we were sending the `uppy/ALL_FILES` message to all clients too.",js,1,1,1
+"@@ -2588,7 +2588,7 @@ describe('Operation (Promises)', function () {
+    * @example-class Db
+    * @example-method collection
+    */
+-  it('shouldCorrectlyAccessACollectionWithPromises', {
++  it.skip('shouldCorrectlyAccessACollectionWithPromises', {
+     metadata: { requires: { topology: ['single'] } },
+ 
+     test: function (done) {",why is this test being skipped?,js,1,0,1
+"@@ -47,6 +47,10 @@ public interface CapabilityType {
+   String HAS_TOUCHSCREEN = ""hasTouchScreen"";
+   String OVERLAPPING_CHECK_DISABLED = ""overlappingCheckDisabled"";
+   String STRICT_FILE_INTERACTABILITY = ""strictFileInteractability"";
++  String TIMEOUTS = ""timeouts"";
++  String IMPLICIT_TIMEOUT = ""implicit"";
++  String PAGE_LOAD_TIMEOUT = ""pageLoad"";
++  String SCRIPT_TIMEOUT = ""script"";
+ 
+   String LOGGING_PREFS = ""loggingPrefs"";
+ ","These are really meant to be the keys in the capabilities, not the keys of values within the capabilities",js,1,1,1
+"@@ -206,7 +206,12 @@ function scheduleFlushAfterPaint() {
+ if (typeof window !== 'undefined') {
+ 	afterPaint = (component) => {
+ 		if (!component._afterPaintQueued && (component._afterPaintQueued = true) && afterPaintEffects.push(component) === 1) {
+-			requestAnimationFrame(scheduleFlushAfterPaint);
++			if (options.afterPaint) {
++				options.afterPaint(flushAfterPaintEffects);
++			}
++			else {
++				requestAnimationFrame(scheduleFlushAfterPaint);
++			}
+ 		}
+ 	};
+ }",Can we change this to `options.requestAnimationFrame`? It should compress better.,js,1,1,1
+"@@ -374,7 +374,7 @@ Blockly.Procedures.getPrototypeBlock = function(procCode, workspace) {
+ Blockly.Procedures.newProcedureMutation = function() {
+   var mutationText = '<xml>' +
+       '<mutation' +
+-      ' proccode=""block name""' +
++      ' proccode=""' + Blockly.Msg.PROCEDURE_DEFAULT_NAME + '""' +
+       ' argumentids=""[]""' +
+       ' argumentnames=""[]""' +
+       ' argumentdefaults=""[]""' +","To avoid renames with Closure advanced compilation, prefer `Blockly.Msg['PROCEDURE_DEFAULT_NAME']`, unless you're including translation in your compilation sources.",js,1,1,1
+"@@ -107,7 +107,7 @@ const webpackConfig = ( mode ) => {
+ 			output: {
+ 				filename: '[name].js',
+ 				path: __dirname + '/dist/assets/js',
+-				chunkFilename: '[name]-[chunkhash].js',
++				chunkFilename: '[name].js',
+ 				publicPath: '',
+ 			},
+ 			performance: {","Would this have any side effects regarding browser caching? We used to have tons of issues with blank screens because of partially old resources being loaded alongside new ones, and I'm a bit worried that removing the chunk hash (specifically necessary for `googlesitekit-vendor.js` would bring back some of these problems. What do you think @tofumatt?",js,0,1,1
+"@@ -0,0 +1,6 @@
++var role = node.getAttribute('role');
++if (role === null) {
++	return false;
++}
++var roleType = axe.commons.aria.getRoleType(role);
++return roleType === 'widget' || roleType === 'composite';","This check should have tests. Nothing too complicated, just check that it works.",js,1,1,1
+"@@ -0,0 +1,18 @@
++/* global axe*/
++
++/**
++ * Get the pass, fail, or incomplete message for a check.
++ * @param {String} checkId The check id
++ * @param {String} type The message type ('pass', 'fail', or 'incomplete')
++ * @param {Object} [data] The check data
++ * @return {String}
++ */
++axe.utils.getCheckMessage = function getCheckMessage(checkId, type, data) {
++	const check = axe._audit.data.checks[checkId];
++
++	if (!check || !check.messages[type]) {
++		return '';
++	}
++
++	return axe.utils.processMessage(check.messages[type], data);
++};",I think it might be better if this just threw an error.,js,1,1,1
+"@@ -30,7 +30,7 @@ describe('cleanupPlugins', function() {
+ 	it('should throw if no audit is configured', function() {
+ 		assert.throws(
+ 			function() {
+-				cleanupPlugins(document, {});
++				axe.cleanup(document, {});
+ 			},
+ 			Error,
+ 			/^No audit configured/",I think this file should be renamed to just cleanup.js,js,0,0,1
+"@@ -195,7 +195,7 @@
+                 var col = filterCols(cols, group)[0];
+ 
+                 var val = $utils.evalProperty(model, group);
+-                val = (val === '' || val === null) ? 'null' : val.toString();
++                val = (val === '' || val === null || val === undefined) ? '[empty]' : val.toString();
+                 if (!ptr[val]) {
+                     ptr[val] = {};
+                 }",Why are you changing the 'null' text to '[empty]' here?,js,1,1,1
+"@@ -1,4 +1,5 @@
+ import { compose, complement, either } from 'ramda';
++import curry2 from 'ramda/src/internal/_curry2';
+ 
+ /* eslint-disable max-len */
+ /**",Can we use `curry` or `curryN` instead of internal `curry2`. We only use `curry1` from internals and probably get rid of it in the future and replace it with `curryN` so that we're dependant on internal api or ramda as few as possible.,js,1,1,1
+"@@ -11,7 +11,10 @@ function ngGridFlexibleHeightPlugin (opts) {
+             var gridId = self.grid.gridId;
+             var footerPanelSel = '.' + gridId + ' .ngFooterPanel';
+             var extraHeight = self.grid.$topPanel.height() + $(footerPanelSel).height();
+-            var naturalHeight = self.grid.$canvas.height() + 1;
++            var naturalHeight = self.grid.$canvas.prop('scrollHeight') + 1;
++            if ( self.grid.$topPanel.width() < grid.$canvas.prop('scrollWidth')) {
++                naturalHeight += 15;
++            }
+             if (opts != null) {
+                 if (opts.minHeight != null && (naturalHeight + extraHeight) < opts.minHeight) {
+                     naturalHeight = opts.minHeight - extraHeight - 2;",Does this work for all browsers? i tested one time and came up with 20px on FF on Linux... but i have not tried setting the `naturalHeight` to the `scrollHeight + 1`,js,1,1,1
+"@@ -34,7 +34,9 @@ import { isValidStringsOrObjects } from '../../../util/report-validation';
+ export function isValidMetrics( metrics ) {
+ 	return isValidStringsOrObjects( metrics, ( metric ) => {
+ 		const validExpression = metric.hasOwnProperty( 'expression' ) && typeof metric.expression === 'string';
+-		const validAlias = metric.hasOwnProperty( 'alias' ) && typeof metric.alias === 'string';
++
++		// 'alias' is optional; if provided, it must be a string.
++		const validAlias = ! metric.hasOwnProperty( 'alias' ) || typeof metric.alias === 'string';
+ 		return validExpression && validAlias;
+ 	} );
+ }","  although the doc block should be updated to reflect this as it currently contradicts this: > Objects must have ""expression"" and ""alias"" properties in order to be considered as valid.",js,1,1,1
+"@@ -41,7 +41,7 @@ export default Mixin.create({
+     notifications: injectService(),
+     clock: injectService(),
+     slugGenerator: injectService(),
+-
++    wordCount: 0,
+     cards: [], // for apps
+     atoms: [], // for apps
+     toolbar: [], // for apps",I think we should be trying to move as much editor-specific code into the `gh-editor` component as possible rather than relying on the controller mixin - I initially thought this was here because the value needs to be carried across the new->edit transition but they are both separate controllers so carrying long-lived state here isn't useful for that. Keeping short-lived editor state in `gh-editor` means that we get automatic cleanup and always know the starting value.,js,1,1,0
+"@@ -22,9 +22,9 @@ const plugins = require('../../pluginManager'),
+             const dayOfYear = now.dayOfYear();
+ 
+             periods.forEach((p) => {
+-                timeList[p] = now.dayOfYear(dayOfYear - p).utc().unix();
++                timeList[p] = now.dayOfYear(dayOfYear - p).utc().unix() * 1000;
+                 conditions.push({
+-                    ls: {$lt: timeList[p]},
++                    lac: {$lt: timeList[p]},
+                 });
+             });
+ ","I think we also need to change in the view on click action to use `lac` instead of `ls`, when viewing users in user profiles list",js,1,1,1
+"@@ -486,7 +486,9 @@ function init(self, obj, doc, prefix) {
+       if (obj[i] === null) {
+         doc[i] = null;
+       } else if (obj[i] !== undefined) {
+-        if (schema) {
++        let intCache = obj[i].$__ || {};
++        let wasPopulated = intCache.wasPopulated || null;
++        if (schema && !wasPopulated) {
+           try {
+             doc[i] = schema.cast(obj[i], self, true);
+           } catch (e) {","You can use `lodash.get` for this in the future, `get(obj[i], '$__.wasPopulated', false)`",js,1,1,1
+"@@ -48,6 +48,7 @@ const baseModuleStore = Modules.createModuleStore( 'adsense', {
+                 'siteStatus',
+                 'accountSetupComplete',
+                 'siteSetupComplete',
++                'ownerID',
+         ],
+         adminPage: 'googlesitekit-module-adsense',
+ } );","Thank you, I realize this detail was missed in the IB  ",js,1,0,1
+"@@ -24,8 +24,7 @@ import java.io.OutputStream;
+ import java.util.Base64;
+ 
+ /**
+- * Defines the output type for a screenshot. See org.openqa.selenium.Screenshot for usage and
+- * examples.
++ * Defines the output type for a screenshot.
+  *
+  * @see TakesScreenshot
+  * @param <T> Type for the screenshot output.",instead of removing can you reference org.openqa.selenium.TakesScreenshot ?,js,1,1,1
+"@@ -22,9 +22,9 @@ define(['viewContainer', 'focusManager', 'queryString', 'layoutManager'], functi
+             newView.initComplete = true;
+ 
+             if (typeof options.controllerFactory === 'function') {
+-
+-                // Use controller method
+                 var controller = new options.controllerFactory(newView, eventDetail.detail.params);
++            } else if (options.controllerFactory && typeof options.controllerFactory.default === 'function') {
++                var controller = new options.controllerFactory.default(newView, eventDetail.detail.params);
+             }
+ 
+             if (!options.controllerFactory || dispatchPageEvents) {",Maybe move `var controller` out of `if/else`? (_Code Smell_),js,1,1,1
+"@@ -5,9 +5,14 @@ import { pageY } from './../../helpers/dom/event';
+ import { arrayEach } from './../../helpers/array';
+ import { rangeEach } from './../../helpers/number';
+ import { registerPlugin } from './../../plugins';
++import { ValueMap } from './../../translations';
+ 
+ // Developer note! Whenever you make a change in this file, make an analogous change in manualRowResize.js
+ 
++const ROW_HEIGHTS_MAP_NAME = 'rowHeights';
++const PERSISTENT_STATE_KEY = 'manualRowHeights';
++const privatePool = new WeakMap();
++
+ /**
+  * @description
+  * This plugin allows to change rows height. To make rows height persistent the {@link Options#persistentState}",Please change this name to the name of the plugin.,js,1,1,1
+"@@ -92,7 +92,9 @@ const webpackConfig = ( mode ) => {
+ 				// New Modules (Post-JSR).
+ 				'googlesitekit-api': './assets/js/googlesitekit-api.js',
+ 				'googlesitekit-data': './assets/js/googlesitekit-data.js',
++				'googlesitekit-datastore-user': './assets/js/googlesitekit-datastore-user.js',
+ 				'googlesitekit-datastore-site': './assets/js/googlesitekit-datastore-site.js',
++				'googlesitekit-modules-analytics': './assets/js/googlesitekit-modules-analytics.js',
+ 				'googlesitekit-modules': './assets/js/googlesitekit-modules.js', // TODO: Add external following 1162.
+ 				// Old Modules
+ 				'googlesitekit-activation': './assets/js/googlesitekit-activation.js',","Super nitpick, but can we keep alpha-sort here? (i.e. after datastore-site)",js,1,1,1
+"@@ -1,9 +1,9 @@
+ 'use strict';
+ 
+-const MongoError = require('../core').MongoError;
++const MongoError = require('../core/error').MongoError;
+ const Aspect = require('./operation').Aspect;
+ const OperationBase = require('./operation').OperationBase;
+-const ReadPreference = require('../core').ReadPreference;
++const ReadPreference = require('../core/topologies/read_preference');
+ const isRetryableError = require('../core/error').isRetryableError;
+ const maxWireVersion = require('../core/utils').maxWireVersion;
+ const isUnifiedTopology = require('../core/utils').isUnifiedTopology;",why the diff here?,js,1,0,1
+"@@ -140,6 +140,10 @@ class SearchRunner
+             compact('params', 'request', 'runningSearchId')
+         );
+ 
++        if (isset($rawRequest['enabledFacets'])) {
++            $params->retainFacets($rawRequest['enabledFacets']);
++        }
++
+         // Attempt to perform the search; if there is a problem, inspect any Solr
+         // exceptions to see if we should communicate to the user about them.
+         try {","While I don't see any major harm in globally enabling an enabledFacets query parameter, perhaps it would a more targeted fix to put this logic in the setup callback created by GetSideFacets::getFacetResults() instead of the SearchRunner itself.",php,1,1,1
+"@@ -14,7 +14,6 @@ return [
+     */
+ 
+     'previous' => '&laquo; Προηγούμενη',
+-
+     'next'     => 'Επόμενη &raquo;',
+ 
+ ];",Why delete empty lines ?,php,1,1,1
+"@@ -1,5 +1,6 @@
+ <?php namespace Backend\Models;
+ 
++use BackendAuth;
+ use Mail;
+ use Event;
+ use Backend;",Move the backend auth use statement below the backend use statement please,php,1,0,1
+"@@ -45,6 +45,7 @@ return [
+         ['file' => 'lightbox.js', 'priority' => 320],
+         ['file' => 'truncate.js', 'priority' => 330],
+         ['file' => 'trigger_print.js', 'priority' => 340],
++        ['file' => 'resultcount.js', 'priority' => 350],
+     ],
+     'less' => [
+         'active' => false,","Now that showCounts is configurable, would it make sense to conditionally load this via searchTabs.phtml when the feature is enabled, rather than always loading the Javascript?",php,1,1,1
+"@@ -19,7 +19,7 @@ use const PREG_OFFSET_CAPTURE;
+ 
+ class DocblockParser
+ {
+-    public static function parse(string $docblock) : ParsedDocblock
++    public static function parse(string $docblock, int $offsetStart) : ParsedDocblock
+     {
+         // Strip off comments.
+         $docblock = trim($docblock);",Mind adding a docblock specifying whether absolute file offset or relative docblock offset is expected here?,php,1,1,1
+"@@ -0,0 +1,9 @@
++<?php
++
++namespace Psalm\Issue;
++
++class InvalidTypeImport extends CodeIssue
++{
++    const ERROR_LEVEL = 7;
++    const SHORTCODE = 233;
++}","Not sure about the level, feel free to adjust.",php,1,0,1
+"@@ -82,7 +82,7 @@ class OrderData
+     public $country;
+ 
+     /**
+-     * @var bool|null
++     * @var bool
+      */
+     public $deliveryAddressSameAsBillingAddress;
+ ","shouldn't we do the same for at least one of these `FrontOrderData`, `ProductFilterData` ?",php,0,1,1
+"@@ -14,7 +14,7 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+ 
+ class PersonalDataAccessMail implements MailTypeInterface, MessageFactoryInterface
+ {
+-    public const VARIABLE_EMAIL = '{e-mail}';
++    public const VARIABLE_EMAIL = '{email}';
+     public const VARIABLE_URL = '{url}';
+     public const VARIABLE_DOMAIN = '{domain}';
+ ",This is a dangerous BC break as current data (email templates in DB) have to be altered. It's really necessary to point it out in the upgrade notes. same applies for `PersonalDataExportMail`,php,1,1,1
+"@@ -96,6 +96,16 @@ class ConfigQuery extends BaseConfigQuery
+         return self::read('rewriting_enable') == 1;
+     }
+ 
++    public static function isSeoTransliteratorEnable()
++    {
++        return self::read('enable_seo_transliterator') == 1;
++    }
++
++    public static function isEndingWithHtml()
++    {
++        return self::read('enable_html_ending_in_urls') == 1;
++    }
++
+     public static function getPageNotFoundView()
+     {
+         return self::read('page_not_found_view', '404.html');",`isUrlHtmlEndingEnabled` is better,php,1,0,1
+"@@ -80,6 +80,7 @@ class Data extends AbstractData {
+ 
+     if (isset($downloadUrl) && !filter_var($downloadUrl, FILTER_VALIDATE_URL)) {
+       $resourceIdentifier = $downloadUrl;
++      $ref = NULL; $original = NULL;
+       [$ref, $original] = $this->retrieveDownloadUrlFromResourceMapper($resourceIdentifier);
+ 
+       $downloadUrl = isset($original) ? $original : """";",My guess is you added these because Code Climate thinks these are undefined...,php,1,1,1
+"@@ -13,7 +13,7 @@
+ 
+ return [
+     'accepted'             => 'Pole musi zostać zaakceptowane.',
+-    'accepted_if'          => 'This field must be accepted when :other is :value.',
++    'accepted_if'          => 'Pole :attribute musi zostać zaakceptowane gdy :other ma wartość :value.',
+     'active_url'           => 'Pole jest nieprawidłowym adresem URL.',
+     'after'                => 'Pole musi być datą późniejszą od :date.',
+     'after_or_equal'       => 'Pole musi być datą nie wcześniejszą niż :date.',",There is not :attribute tag here,php,1,1,1
+"@@ -561,6 +561,10 @@ class Folio extends AbstractAPI implements
+                 $locationData = $this->getLocationData($locationId);
+                 $locationName = $locationData['name'];
+                 $locationCode = $locationData['code'];
++                $holdingCallNumber = $holding->callNumber ?? '';
++                $holdingCallNumberPrefix = $holding->callNumberPrefix ?? '';
++                $itemCallNumber = $item->itemLevelCallNumber ?? '';
++                $itemCallNumberPrefix = $item->itemLevelCallNumberPrefix ?? '';
+                 $items[] = [
+                     'id' => $bibId,
+                     'item_id' => $item->id,",I think you could actually move the two holding-related variable declarations above the foreach loop that's iterating over items in order to avoid a little bit of redundant work.,php,1,1,1
+"@@ -47,8 +47,8 @@ return [
+     'in_array'             => 'שדה :attribute לא קיים ב:other.',
+     'integer'              => 'שדה :attribute חייב להיות מספר שלם.',
+     'ip'                   => 'שדה :attribute חייב להיות כתובת IP תקנית.',
+-    'ipv4'                 => 'The :attribute must be a valid IPv4 address.',
+-    'ipv6'                 => 'The :attribute must be a valid IPv6 address.',
++    'ipv4'                 => 'שדה :attribute חייב להיות כתובת IPv4 תקנית.',
++    'ipv6'                 => 'The :attribute חייב להיות כתובת IPv6 תקנית.',
+     'json'                 => 'שדה :attribute חייב להיות מחרוזת JSON תקנית.',
+     'max'                  => [
+         'numeric' => 'שדה :attribute אינו יכול להיות גדול מ-:max.',","Hello, you forgot ""The""",php,1,1,1
+"@@ -0,0 +1,17 @@
++<?php
++/**
++ * Copyright © Bold Brand Commerce Sp. z o.o. All rights reserved.
++ * See LICENSE.txt for license details.
++ */
++
++declare(strict_types=1);
++
++namespace Ergonode\Core\Infrastructure\Exception;
++
++class DeserializationException extends SerializerException
++{
++    public function __construct(string $message, \Throwable $previous = null)
++    {
++        parent::__construct($message, $previous);
++    }
++}",I think it should been in `SharedKernel` module.,php,1,0,1
+"@@ -664,6 +664,7 @@ static void handle_acct_mgr_info(GUI_RPC_CONN& grc) {
+         || strlen(gstate.acct_mgr_info.authenticator)
+     ) {
+         grc.mfout.printf(""   <have_credentials/>\n"");
++	grc.mfout.printf(""   <authenticator>%s</authenticator>\n"", gstate.acct_mgr_info.authenticator);
+     }
+ 
+     if (gstate.acct_mgr_info.cookie_required) {",Can you replace the tab with spaces so that it properly indents? Thanks!,php,1,1,1
+"@@ -1,5 +1,6 @@
+ <?php
+ 
++use Cms\Classes\LayoutCode;
+ use Cms\Classes\Page;
+ use Cms\Classes\Theme;
+ use Cms\Classes\Layout;",I'd prefer the `use` statements were in order,php,1,1,1
+"@@ -40,8 +40,8 @@ return [
+     | or doing any other checks to ensure the service is functional.
+     |
+     */
+-    
+-    'preflight' => false,
++
++    'preflight' => true,
+ 
+     /*
+     |--------------------------------------------------------------------------","As a compromise, I would say to have preflight set to WP_ENV !== 'production' or something so that by default it's not enabled in production.",php,1,1,1
+"@@ -312,7 +312,7 @@ int diagnostics_update_thread_list() {
+             // Enumerate the threads
+             for(uiSystemIndex = 0; uiSystemIndex < pProcesses->ThreadCount; uiSystemIndex++) {
+                 pThread = &pProcesses->Threads[uiSystemIndex];
+-                pThreadEntry = diagnostics_find_thread_entry((DWORD)pThread->ClientId.UniqueThread);
++                pThreadEntry = diagnostics_find_thread_entry((DWORD)(uintptr_t)pThread->ClientId.UniqueThread);
+ 
+                 if (pThreadEntry) {
+                     pThreadEntry->crash_kernel_time = (FLOAT)pThread->KernelTime.QuadPart;",Double type cast looks bad. Why do we need it here?,php,1,1,1
+"@@ -651,9 +651,7 @@ class Algebra
+ 
+                         $new_clause = new Clause(
+                             $new_clause_possibilities,
+-                            $clause->creating_conditional_id === $grouped_clause->creating_conditional_id
+-                                ? $clause->creating_conditional_id
+-                                : $grouped_clause->creating_conditional_id,
++                            $grouped_clause->creating_conditional_id,
+                             $clause->creating_object_id,
+                             false,
+                             true,",On the first glance this doesn't look like exact equivalent.,php,1,0,1
+"@@ -473,19 +473,6 @@ class EmptyTest extends TestCase
+                     }',
+                 'error_message' => 'MixedReturnTypeCoercion'
+             ],
+-            'secondEmptyTwice' => [
+-                'code' => '<?php
+-                    /**
+-                     * @param array{a?:int,b?:string} $p
+-                     */
+-                    function f(array $p) : void {
+-                        if (empty($p)) {
+-                            throw new RuntimeException("""");
+-                        }
+-                        assert(!empty($p));
+-                    }',
+-                'error_message' => 'RedundantCondition'
+-            ],
+         ];
+     }
+ }",why did you drop this? Seems like it still works on my side,php,1,1,1
+"@@ -154,3 +154,9 @@ function array_change_key_case(array $arr, int $case = CASE_LOWER) {}
+  * @return array<int, array<array-key, T>>
+  */
+ function array_chunk(array $arr, int $size, bool $preserve_keys = false) {}
++
++
++/**
++* @param resource|HashContext
++*/
++function hash_update($hash, string $data) : bool {}","I think this should go to `src/Psalm/Internal/CallMap.php` instead. `CoreGenericFunctions` implies generics, i.e. functions with `@template` tags.",php,1,1,1
+"@@ -1195,7 +1195,7 @@ static void handle_get_app_config(GUI_RPC_CONN& grc) {
+         return;
+     }
+     sprintf(path, ""%s/%s"", p->project_dir(), APP_CONFIG_FILE_NAME);
+-    printf(""path: %s\n"", path);
++    // printf(""path: %s\n"", path);    // debug only
+     int retval = read_file_string(path, s);
+     if (retval) {
+         grc.mfout.printf(""<error>app_config.xml not found</error>\n"");",Could be completely removed,php,1,0,1
+"@@ -1099,7 +1099,9 @@ class RelationController extends ControllerBehavior
+                 $modelToSave->save(null, $this->manageWidget->getSessionKey());
+             }
+ 
+-            $this->relationObject->add($newModel, $sessionKey);
++            if (!$this->model->{$this->relationName}->contains($newModel)) {
++                $this->relationObject->add($newModel, $sessionKey);
++            }
+         }
+         elseif ($this->viewMode == 'single') {
+             $newModel = $this->viewModel;","This will load all related models from the database to check for duplicates. If you have a large dataset, the process is likely to run out of memory.",php,1,1,1
+"@@ -1241,7 +1241,7 @@ class AssertAnnotationTest extends TestCase
+                         return substr($a, 0, 1) . substr($b, 0, 1);
+                     }'
+             ],
+-            'SKIPPED-convertConstStringType' => [
++            'convertConstStringType' => [
+                 '<?php
+                     class A {
+                         const T1 = 1;",I've re-enabled this test case as it is fixed with this PR as well. Thanks to @orklah for referring to it in #6300,php,0,1,1
+"@@ -283,6 +283,7 @@ $config = [
+             'VuFind\ContentTOCPluginManager' => 'VuFind\Service\Factory::getContentTOCPluginManager',
+             'VuFind\CookieManager' => 'VuFind\Service\Factory::getCookieManager',
+             'VuFind\Cover\Router' => 'VuFind\Service\Factory::getCoverRouter',
++            'VuFind\CsrfValidator' => 'VuFind\Service\Factory::getCsrfValidator',
+             'VuFind\DateConverter' => 'VuFind\Service\Factory::getDateConverter',
+             'VuFind\DbAdapter' => 'VuFind\Service\Factory::getDbAdapter',
+             'VuFind\DbAdapterFactory' => 'VuFind\Service\Factory::getDbAdapterFactory',","For forward-compatibility with the Service Manager 3 code, I'd recommend naming this service for the class that's being created -- i.e. Zend\Validator\Csrf. We're already using that class in the login process -- should we be using this service there as well, or is there a reason to configure it differently in two different places? (I haven't reviewed that code... so apologies if this is actually a bad suggestion because I'm missing an important detail).",php,1,1,0
+"@@ -74,7 +74,7 @@ class AdminController extends Controller
+             throw new ForbiddenActionException(array('action' => $action, 'entity' => $this->entity['name']));
+         }
+ 
+-        $customMethodName  = $action.$this->entity['name'].'Action';
++        $customMethodName = $action.$this->entity['name'].'Action';
+         $defaultMethodName = $action.'Action';
+ 
+         return method_exists($this, $customMethodName) ? $this->{$customMethodName}() : $this->{$defaultMethodName}();","For this case (and all other similar ones) you can revert them: aligning variable definitions and array keys is not a ""bad"" practice.",php,1,1,1
+"@@ -33,13 +33,17 @@ int REGEX_CLAUSE::init(const char* p) {
+     present = true;
+     negate = false;
+     expr = p;
+-    if (*p == '!') {
+-        p++;
++    if (!strncmp(p,""(?!"",3) && p[strlen(p)-1] == ')') {
++        p += 3;
++        p[strlen(p)-1] = '\0'; // don't parse trailing ')'
+         negate = true;
+     }
+     if (regcomp(&regex, p, REG_EXTENDED|REG_NOSUB) ) {
+         return ERR_XML_PARSE;
+     }
++    if (negate) {
++        p[strlen(p)] = ')'; // restore trailing ')'
++    }
+     return 0;
+ }
+ ",Here copy constructor will be called,php,1,1,1
+"@@ -0,0 +1,19 @@
++<?php
++
++return [
++
++    /*
++    |--------------------------------------------------------------------------
++    | Authentication Language Lines
++    |--------------------------------------------------------------------------
++    |
++    | The following language lines are used during authentication for various
++    | messages that we need to display to the user. You are free to modify
++    | these language lines according to your application's requirements.
++    |
++    */
++
++    'failed' => 'Hierdie verwysings stem nie ooreen met ons rekords nie.',
++    'throttle' => 'Te veel pogings om aan te meld. Probeer asseblief weer binne :seconds sekondes',
++
++];","Need 'password' => 'The provided password is incorrect.',",php,1,1,1
+"@@ -137,7 +137,7 @@ func (c *Config) Config() error {
+ 	namePrompt = fmt.Sprintf(""%s (%s)"", namePrompt, c.Name)
+ 	// Define an application name.
+ 	fmt.Print(namePrompt + "": "")
+-	c.Name = getInput(c.Name)
++	c.Name = GetInput(c.Name)
+ 
+ 	err := c.docrootPrompt()
+ 	util.CheckErr(err)",Fine w/ reusing this but we should likely move it into a utils or inputreader package if we do.,php,1,1,1
+"@@ -118,7 +118,7 @@ abstract class FunctionLikeAnalyzer extends SourceAnalyzer
+     /**
+      * @param Closure|Function_|ClassMethod|ArrowFunction $function
+      */
+-    protected function __construct($function, SourceAnalyzer $source, FunctionLikeStorage $storage)
++    public function __construct($function, SourceAnalyzer $source, FunctionLikeStorage $storage)
+     {
+         $this->function = $function;
+         $this->source = $source;",each child redefine the visibility of the constructor as public. The parent should have the same visibility,php,1,1,1
+"@@ -101,7 +101,11 @@ class ImportInstagram implements ShouldQueue
+ 
+                 $path = storage_path(""app/$importData->path"");
+                 $storagePath = ""public/m/{$monthHash}/{$userHash}"";
+-                $newPath = ""app/$storagePath/$filename"";
++                $dir = ""app/$storagePath"";
++                if(!is_dir(storage_path($dir))) {
++                    mkdir(storage_path($dir), 0777, true);
++                }
++                $newPath = ""$dir/$filename"";
+                 $fs->move($path,storage_path($newPath));
+                 $path = $newPath;
+                 $hash = \hash_file('sha256', storage_path($path));",Please remove the second and third parameters of the `mkdir` function,php,1,1,1
+"@@ -12,6 +12,12 @@ $config = [
+             'SearchApi' => 'VuFindApi\Controller\SearchApiController',
+         ],
+     ],
++    'service_manager' => [
++        'allow_override' => true,
++        'factories' => [
++            'VuFindApi\Formatter\RecordFormatter' => 'VuFindApi\Formatter\RecordFormatterFactory',
++        ],
++    ],
+     'router' => [
+         'routes' => [
+             'apiHome' => [",Do you need this allow_override setting here? Won't it be inherited from the main VuFind module?,php,1,1,1
+"@@ -93,6 +93,19 @@ return [
+ 
+     'backendSkin' => 'Backend\Skins\Standard',
+ 
++    /*
++    |--------------------------------------------------------------------------
++    | Automatically run migrations on login
++    |--------------------------------------------------------------------------
++    |
++    | If value is true, UpdateMananger will be run on logging in to the backend.
++    | It's recommended to set this value to 'false' in production enviroments
++    | because it clears the cache every time a user logs in to the backend.
++    |
++    */
++
++    'runMigrationsOnLogin' => true,
++
+     /*
+     |--------------------------------------------------------------------------
+     | Determines which modules to load","@bennothommo I wonder if we should have this set to null by default to represent pulling its value from the value of app.debug (debug enabled this enabled, debug disabled this disabled). Thoughts? Are users still able to have migrations run when installing new plugins or plugin updates through the backend when debug (i.e. this) is disabled in that case?",php,0,1,1
+"@@ -4,17 +4,13 @@ namespace EasyCorp\Bundle\EasyAdminBundle\Search;
+ 
+ use Doctrine\ORM\Query as DoctrineQuery;
+ use Doctrine\ORM\QueryBuilder as DoctrineQueryBuilder;
+-use Doctrine\ORM\Tools\Pagination\CountWalker;
+-use Pagerfanta\Adapter\DoctrineORMAdapter;
+-use Pagerfanta\Pagerfanta;
+ 
+ /**
++ * @deprecated Use EasyCorp\Bundle\EasyAdminBundle\Search\QueryPaginator
+  * @author Javier Eguiluz <javier.eguiluz@gmail.com>
+  */
+ class Paginator
+ {
+-    private const MAX_ITEMS = 15;
+-
+     /**
+      * Creates a Doctrine ORM paginator for the given query builder.
+      *","This is a BC break too, peoples overriding this method will expect an instance of `Pagerfanta`, but since the new one contains the same methods I guess can it be ignored?",php,1,1,1
+"@@ -178,7 +178,12 @@ class MailManager
+ 
+         $css = MailBrandSetting::renderCss();
+ 
++        $disableInlineCss = false;
++
+         if ($template->layout) {
++
++            $disableInlineCss = array_get($template->layout->options, 'disable_inline_css', $disableInlineCss);
++
+             $html = $this->renderTwig($template->layout->content_html, [
+                 'content' => $html,
+                 'css' => $template->layout->content_css,","Would it not be more appropiate to name this ""$disableCssToInline""? Because we are not someohow preventing the layout to have inline styles, we are just toggling whether or not we want defined css classes converted to inline css.",php,1,1,1
+"@@ -1,8 +1,11 @@
+ <?php namespace Cms\Controllers;
+ 
++use File;
++use Lang;
+ use Backend;
+ use BackendMenu;
+ use ApplicationException;
++use Cms\Classes\Theme;
+ use Cms\Models\ThemeData;
+ use Cms\Classes\Theme as CmsTheme;
+ use System\Classes\SettingsManager;",These extra import statements shouldn't be required anymore,php,1,1,1
+"@@ -199,7 +199,6 @@ class UserDataFixtureLoader
+         } else {
+             $customerData->deliveryAddressData = $this->deliveryAddressDataFactory->create();
+         }
+-        $userData->domainId = $domainId;
+ 
+         $customerData->userData = $userData;
+         $customerData->billingAddressData = $billingAddressData;",commit message: should be the dash part on the new line with one empty line ? or is it intentional ?,php,1,1,1
+"@@ -521,7 +521,7 @@ class BaseModule extends ContainerAware implements BaseModuleInterface
+      * @param string $newVersion the new module version, as defined in the module.xml file
+      * @param ConnectionInterface $con
+      */
+-    public function update($currentVersion, $newVersion, ConnectionInterface $con)
++    public function update($currentVersion, $newVersion, ConnectionInterface $con = null)
+     {
+         // Override this method to do something useful.
+     }","By adding the default ""null"" to $con parameter, you're breaking the compatibility with exiting modules which uses the signature without the default 'null' value, which was valid until now. Please remove this 'null' default.",php,1,1,1
+"@@ -93,7 +93,7 @@ CMPS = [""="", ""-"", ""+""]
+ 
+ 
+ # py3k has no more cmp builtin
+-def cmp(a, b):  # pylint: disable=redefined-builtin
++def cmp(a, b):
+     return (a > b) - (a < b)
+ 
+ ",This was useless since pylint 2.0,py,1,0,1
+"@@ -841,6 +841,11 @@ def data(readonly=False):
+              ""required to exactly match the requested domain.\n\n""
+              ""Local domains are always exempt from hostblocking.""),
+ 
++            ('enable-pdfjs', SettingValue(typ.Bool(), 'true'),
++             ""Enable pdf.js to view PDF files in the browser.\n\n""
++             ""Note that the files can still be downloaded by clicking""
++             "" the download button in the pdf.js viewer.""),
++
+             readonly=readonly
+         )),
+ ",I'd prefer if this was `false` by default - I think many people prefer to opt-in to pdfjs than to opt-out of it :wink:,py,1,1,1
+"@@ -1987,6 +1987,10 @@ class NameChecker(_BasicChecker):
+                     self._check_name(""variable"", node.name, node)
+         elif isinstance(frame, astroid.ClassDef):
+             if not list(frame.local_attr_ancestors(node.name)):
++                for ancestor in frame.ancestors():
++                    if ancestor.name == ""Enum"" and ancestor.root().name == ""enum"":
++                        self._check_name(""const"", node.name, node)
++                        return
+                 self._check_name(""class_attribute"", node.name, node)
+ 
+     def _recursive_check_names(self, args, node):",I would prefer a simple break statement here instead of return. What do you think about it?,py,1,1,1
+"@@ -10,7 +10,11 @@ SQLALCHEMY_DATABASE_URI = os.environ['SQLALCHEMY_DATABASE_URI']
+ REGISTRY_URL = os.environ['REGISTRY_URL']
+ CATALOG_HOST = os.environ['CATALOG_HOST']
+ 
+-CATALOG_URL = 'https://%s' % CATALOG_HOST
++CATALOG_URL = os.environ.get('CATALOG_URL', 'https://%s' % CATALOG_HOST)
++if not CATALOG_URL.startswith(""https""):
++    print(""WARNING: INSECURE CONNECTION TO CATALOG"")
++    # require verbose environment variable to be defined
++    ALLOW_INSECURE_CATALOG_ACCESS = os.environ['ALLOW_INSECURE_CATALOG_ACCESS']
+ 
+ PACKAGE_BUCKET_NAME = os.environ['PACKAGE_BUCKET_NAME']
+ ",I'm fine with `CATALOG_URL` - but we should then drop `CATALOG_HOST`. No point in having two of them,py,1,1,1
+"@@ -133,10 +133,12 @@ def process_proxy_options(parser, options):
+ 
+     if options.clientcerts:
+         options.clientcerts = os.path.expanduser(options.clientcerts)
+-        if not os.path.exists(options.clientcerts) or not os.path.isdir(options.clientcerts):
++        if not (os.path.exists(options.clientcerts) or
++                os.path.isdir(options.clientcerts) or
++                os.path.isfile(options.clientcerts)):
+             return parser.error(
+-                ""Client certificate directory does not exist or is not a directory: %s"" %
+-                options.clientcerts
++                ""Client certificate argument is not a file or directory, ""
++                ""or does not exist: %s"" % options.clientcerts
+             )
+ 
+     if options.auth_nonanonymous or options.auth_singleuser or options.auth_htpasswd:","This condition doesn't make much sense, `isdir/isfile` always imply `exists`. I think just checking for `.exists()` is good enough.",py,1,1,1
+"@@ -344,6 +344,14 @@ def run(cmd, *args, win_id, env, verbose=False):
+     if user_agent is not None:
+         env['QUTE_USER_AGENT'] = user_agent
+     cmd = os.path.expanduser(cmd)
++
++    # check if userscript is in absolute path or in $XDG_DATA_DIRS
++    if not os.path.isabs(cmd):
++        log.misc.debug(""{} is no absoulte path"".format(cmd))
++        c = os.path.join(standarddir.data(), ""userscripts"", cmd)
++        if os.path.isfile(c):
++            cmd = c
++
+     runner.run(cmd, *args, env=env, verbose=verbose)
+     runner.finished.connect(commandrunner.deleteLater)
+     runner.finished.connect(runner.deleteLater)",That command doesn't seem accurate anymore - `$XDG_DATA_DIRS` is not checked.,py,1,1,1
+"@@ -8,12 +8,13 @@ to multiple files in parallel.
+ import random
+ import sys
+ from mitmproxy import io, http
++import typing  # noqa
+ 
+ 
+ class Writer:
+     def __init__(self, path: str) -> None:
+         if path == ""-"":
+-            f = sys.stdout  # type: io.TextIO
++            f = sys.stdout  # type: typing.IO[typing.Any]
+         else:
+             f = open(path, ""wb"")
+         self.w = io.FlowWriter(f)","The FlowWriter only writes bytes, so this should really be `typing.IO[bytes]`. If that raises errors, that's a strong indicator that the code here does not work as intended. I'd be fine with removing the `if path == ""-"":` special case altogether.",py,1,1,1
+"@@ -145,3 +145,14 @@ def init():
+     objreg.register('command-history', command_history)
+     save_manager.add_saveable('command-history', command_history.save,
+                               command_history.changed)
++
++
++def init_fprompt():
++    """"""Initialize the LimitLineParser storing the history.""""""
++    save_manager = objreg.get('save-manager')
++    fprompt_history = lineparser.LimitLineParser(
++        standarddir.data(), 'fprompt-history',
++        limit='completion.fprompt_history_max_items')
++    objreg.register('fprompt-history', fprompt_history)
++    save_manager.add_saveable('fprompt-history', fprompt_history.save,
++                              fprompt_history.changed)",No need to have a separate init function for this.,py,1,0,1
+"@@ -0,0 +1,8 @@
++import pydantic
++from typing import List
++
++
++class NewReleasesStat(pydantic.BaseModel):
++    type: str
++    user_name: str
++    data: List",Maybe add a docstring/docs for what will be in the list?,py,1,1,1
+"@@ -19,7 +19,7 @@ from databricks.koalas.testing.utils import ReusedSQLTestCase
+ 
+ 
+ class ReprTests(ReusedSQLTestCase):
+-    max_display_count = 123
++    max_display_count = 23
+ 
+     @classmethod
+     def setUpClass(cls):","pandas' `display.max_rows` value is 60 by default. So, lowering then that will test the changes correctly.",py,1,1,1
+"@@ -71,3 +71,14 @@ class Good(object):
+ def does_not_crash_on_range_without_args():
+     for elem in range():
+         print(elem)
++
++# False negative described in #3657
++class MyClass(object):
++    def __init__(self):
++        self.my_list = []
++
++my_obj = MyClass()
++def my_function(instance: MyClass):
++    for i in range(len(instance.my_list)):  # [consider-using-enumerate]
++        var = instance.my_list[i]
++        print(var)",Can you add a link to the Github issue here as well?,py,0,1,1
+"@@ -30,6 +30,8 @@ from scapy.modules.six.moves import range, zip
+ 
+ class PacketList(BasePacketList, _CanvasDumpExtended):
+     __slots__ = [""stats"", ""res"", ""listname""]
++    read_allowed_exceptions = ()  # emulate SuperSocket
++    nonblocking_socket = True
+ 
+     def __init__(self, res=None, name=""PacketList"", stats=None):
+         """"""create a packet list from a list of packets",Could you explain why you are making this a (fake) socket ?,py,1,1,1
+"@@ -521,7 +521,7 @@ class Package(object):
+         return cls._browse(name=name, registry=registry, top_hash=top_hash)
+ 
+     @classmethod
+-    def _browse(cls, name, registry, top_hash):
++    def _browse(cls, name, registry=None, top_hash=None):
+         validate_package_name(name)
+         if registry is None:
+             registry = get_from_config('default_local_registry')",Is this change needed for the fix?,py,1,0,1
+"@@ -215,10 +215,15 @@ class WordDocumentTextInfo(UIATextInfo):
+ 				self.setEndPoint(docInfo,""endToEnd"")
+ 
+ 	def getTextWithFields(self,formatConfig=None):
+-		if self.isCollapsed:
+-			# #7652: We cannot fetch fields on collapsed ranges otherwise we end up with repeating controlFields in braille (such as list list list). 
+-			return []
+-		fields=super(WordDocumentTextInfo,self).getTextWithFields(formatConfig=formatConfig)
++		fields = None
++		if not self.isCollapsed:
++			rawText = self._rangeObj.GetText(2)
++			if not rawText or rawText == '\x07':
++				r = self.copy()
++				r.end = r.start
++				fields = super(WordDocumentTextInfo, r).getTextWithFields(formatConfig=formatConfig)
++		if fields is None:
++			fields = super(WordDocumentTextInfo, self).getTextWithFields(formatConfig=formatConfig)
+ 		if len(fields)==0: 
+ 			# Nothing to do... was probably a collapsed range.
+ 			return fields",What does `'\x07'` represent in this instance? Could it be replaced by a named constant?,py,1,1,1
+"@@ -185,6 +185,16 @@ def filter_rules_by_network(rules, network):
+     return filtered_rules
+ 
+ 
++def _rule_update_can_patch(rule_from, rule_to):
++    if not rule_to or not rule_from:
++        raise ValueError('from and to must both exist for checking replace vs patch.')
++    if 'allowed' in rule_from and 'denied' in rule_to:
++        return False # Patch fails to update allowed -> denied
++    if 'denied' in rule_from and 'allowed' in rule_to:
++        return False # Patch fails to update denied -> allowed
++    return True
++
++
+ class FirewallRules(object):
+     """"""A collection of validated firewall rules.""""""
+ ",It would be nice to see unit tests for this.,py,0,1,1
+"@@ -132,6 +132,13 @@ def restart(disableAddons=False, debugLogging=False):
+ 		sys.argv.remove(""--ease-of-access"")
+ 	except ValueError:
+ 		pass
++	if globalVars.appArgs.cmdLineLanguage:
++		import config
++		# We should better compare here with the saved value if not saveOnExit.
++		if config.conf[""general""][""language""] != globalVars.appArgs.cmdLineLanguage:
++			for i, arg in list(enumerate(sys.argv)):
++				if arg.startswith(""--lang=""):
++					del sys.argv[i]
+ 	shellapi.ShellExecute(None, None,
+ 		sys.executable,
+ 		subprocess.list2cmdline(sys.argv + options),","I think cmdLanguage can just be language. globalVars.appArgs already implies that we're dealing with a command line argument here. Having said that, I note that some magic is happening with the configPath, but that could be considered confusing.",py,1,1,1
+"@@ -755,11 +755,12 @@ class Storage(StorageBase, MigratorMixin):
+                 # However, it does support Postgres arrays of any
+                 # type. Assume that the referenced field is a JSON
+                 # array and convert it to a Postgres array.
+-                # N.B. This won't work on JSON objects and will never match.
+                 data_as_array = '''
+                 (SELECT array_agg(elems) FROM jsonb_array_elements({}) elems)
+-                '''.format(sql_field)
++                '''.format(sql_field, sql_field)
+                 cond = '{} && (:{})::jsonb[]'.format(data_as_array, value_holder)
++                # In case the field is not a sequence, we ignore the record.
++                conditions.append(""jsonb_typeof({}) = 'array'"".format(sql_field))
+ 
+             elif value != MISSING:
+                 # Safely escape value. MISSINGs get handled below.",nit: nicer with `{field}` in the string and `.format(field=sql_field)`,py,1,1,1
+"@@ -128,13 +128,14 @@ class GroupNode(Node):
+         store = None
+         hash_list = []
+         stack = [self]
++        alldfs = True
+         while stack:
+             node = stack.pop()
+             if isinstance(node, GroupNode):
+                 stack.extend(child for _, child in sorted(node._items(), reverse=True))
+             else:
+                 if not isinstance(node._node, core.TableNode):
+-                    raise ValueError(""Group contains non-dataframe nodes"")
++                    alldfs = False
+                 if not node._node.hashes:
+                     msg = ""Can only merge built dataframes. Build this package and try again.""
+                     raise NotImplementedError(msg)","You probably need to check for `node._node is None` now, too (same as in the previous PR)",py,0,1,1
+"@@ -21,4 +21,6 @@
+ 
+ from nupic.frameworks.viz.graphviz_renderer import GraphVizRenderer
+ from nupic.frameworks.viz.networkx_renderer import NetworkXRenderer
++from nupic.frameworks.viz.dot_renderer import DotRenderer
+ from nupic.frameworks.viz.network_visualization import NetworkVisualizer
++",put import in alpha order,py,1,1,1
+"@@ -64,6 +64,8 @@ def test_start(proc, qtbot, message_mock, py_proc):
+     assert not message_mock.messages
+     assert qutescheme.spawn_output == expected
+     assert proc.exit_status() == QProcess.NormalExit
++    assert proc.final_stdout().strip() == ""test"", proc.final_stdout()
++    assert proc.final_stderr().strip() == """", proc.final_stderr()
+ 
+ 
+ def test_start_verbose(proc, qtbot, message_mock, py_proc):",Maybe those would fit better in `test_start_output_message` which also tests various combinations of stdout/stderr being set or unset?,py,1,1,1
+"@@ -25,6 +25,7 @@ from qutebrowser.config import config, configdata
+ from qutebrowser.models import basecompletion
+ from qutebrowser.utils import log, qtutils, objreg
+ from qutebrowser.commands import cmdutils
++from qutebrowser.browser import quickmarks
+ 
+ 
+ class SettingSectionCompletionModel(basecompletion.BaseCompletionModel):",You can remove this import now after 74839d7affdaabd4899311c64e9f50a430a6ea3d,py,0,1,1
+"@@ -346,6 +346,8 @@ def tree_attribute(identifier):
+     These custom attributes start with a capitalized character when
+     applicable (not applicable to underscore or certain unicode characters)
+     """"""
++    if not identifier:
++        return True
+     if identifier[0].upper().isupper() is False and identifier[0] != '_':
+         return True
+     else:","This would match anything that is falsey even though it should only ever match the empty string. I would prefer to be explicit, i.e.: `if identifier=='':`",py,1,1,1
+"@@ -452,6 +452,10 @@ class Series(Frame, IndexOpsMixin, Generic[T]):
+     def add(self, other) -> ""Series"":
+         return self + other
+ 
++    def __add__(self, other):
++        other = ks.Index(other, name=self.name) if isinstance(other, (list, tuple)) else other
++        return IndexOpsMixin.__add__(self, other)
++
+     add.__doc__ = _flex_doc_SERIES.format(
+         desc=""Addition"",
+         op_name=""+"",",- Why do we create Index to compare instead of Series? - Looks like Index support this too. Can't we move this into `base.py`?,py,1,1,1
+"@@ -246,7 +246,10 @@ def _parse_keystring(keystr):
+                 yield '>'
+                 assert not key, key
+         elif c == '<':
+-            special = True
++            if special:
++                key += c
++            else:
++                special = True
+         elif special:
+             key += c
+         else:","This seems to somewhat fix `<alt-less>` (I need to bind `<alt-shift-less>` to get this to work, I wonder why that needs `shift` but a plain `<` dosen't), but it dosen't fix `<alt-greater>` so it's not a full fix. I'm also not sure if this will change any error messages. I don't really like this whole parsing logic, it needs a proper grammar instead of consuming keys like this (in my opinion). We could special-case `> ` right after `+` or `-`, but that feels really hacky to me.",py,1,1,0
+"@@ -180,6 +180,7 @@ class BaseKeyParser(QObject):
+ 
+         count, cmd_input = self._split_count()
+ 
++        print(count, cmd_input)
+         if not cmd_input:
+             # Only a count, no command yet, but we handled it
+             return self.Match.other","That should probably be removed now, or replaced by a debug log command :wink:",py,1,1,1
+"@@ -94,13 +94,15 @@ def get_window(via_ipc, force_window=False, force_tab=False,
+     return window.win_id
+ 
+ 
+-def raise_window(window):
++def raise_window(window, alert=False):
+     """"""Raise the given MainWindow object.""""""
+     window.setWindowState(window.windowState() & ~Qt.WindowMinimized)
+     window.setWindowState(window.windowState() | Qt.WindowActive)
+     window.raise_()
+     window.activateWindow()
+-    QApplication.instance().alert(window)
++
++    if alert:
++        QApplication.instance().alert(window)
+ 
+ 
+ # WORKAROUND for https://github.com/PyCQA/pylint/issues/1770","I think you meant to say `alert=True` here, to make all existing usages keep the old behavior",py,1,1,1
+"@@ -7,6 +7,8 @@ from mitmproxy.net import tcp
+ # We redefine these here for now to avoid importing Urwid-related guff on
+ # platforms that don't support it, and circular imports. We can do better using
+ # a lazy checker down the track.
++from mitmproxy.optmanager import Path
++
+ console_palettes = [
+     ""lowlight"",
+     ""lowdark"",","We already import `optmanager`, so let's just use `optmanager.Path` below.",py,1,1,1
+"@@ -195,15 +195,12 @@ class SecurityCenterClient(object):
+         response = self.repository.findings.list(parent=source_id)
+         return response
+ 
+-    def update_finding(self, finding, finding_id, state, event_time,
+-                       source_id=None):
++    # pylint: disable=inconsistent-return-statements
++    def update_finding(self, finding, finding_id, source_id=None):
+         """"""Updates a finding in CSCC.
+ 
+         Args:
+             finding (dict): Forseti violation in CSCC format.
+-            name (str): Name of the CSCC finding.
+-            state (str): State of the CSCC finding.
+-            event_time (str): Event time of the the CSCC finding.
+             source_id (str): Unique ID assigned by CSCC, to the organization
+                 that the violations are originating from.
+             finding_id (str): id hash of the CSCC finding.",You should have the return statement on line 213 return an empty dict and not override the pylint.,py,1,1,1
+"@@ -61,6 +61,13 @@ class PermissionsUnauthenticatedViewTest(BaseWebTest, unittest.TestCase):
+             'resource_name': 'bucket',
+             'uri': '/buckets'})
+ 
++    def test_can_paginate(self):
++        """"""kinto_http.js uses this sort of request when listing permissions""""""
++        resp = self.app.get('/permissions?_sort=id&_limit=1', headers=self.everyone_headers)
++        while 'Next-Page' in resp.headers:
++            next_url = resp.headers['Next-Page'][len('http://localhost/v1'):]
++            resp = self.app.get(next_url, headers=self.everyone_headers)
++
+     def test_object_details_are_provided(self):
+         resp = self.app.get('/permissions', headers=self.everyone_headers)
+         entries = resp.json['data']","Ideally, I'd like the `/buckets` perm to come out first, could you please check that? (I never know whether `None` comes first or not)",py,1,1,1
+"@@ -8,6 +8,14 @@ from pylint import checkers
+ from pylint.lint import PyLinter
+ from pylint.testutils import MinimalTestReporter
+ 
++TOP = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++PYLINTRC = os.path.join(TOP, ""pylintrc"")
++
++
++@pytest.fixture(autouse=True)
++def pylintrc():
++    os.environ[""PYLINTRC""] = PYLINTRC
++
+ 
+ @pytest.fixture
+ def linter(checker, register, enable, disable, reporter):",I don't see the point in adding those lines. Can you explain a little bit please?,py,0,1,1
+"@@ -28,10 +28,10 @@ def get_python_path(filepath: str) -> str:
+             return os.getcwd()
+ 
+ 
+-def _basename_in_ignore_list_re(base_name, ignore_list_re):
+-    """"""Determines if the basename is matched in a regex ignorelist
++def _is_in_ignore_list_re(element, ignore_list_re):
++    """"""Determines if the element is matched in a regex ignore-list
+ 
+-    :param str base_name: The basename of the file
++    :param str element: The element to be checked.
+     :param list ignore_list_re: A collection of regex patterns to match against.
+         Successful matches are ignored.
+ ","Could you add the typing and remove the docstring that became useless, please. Since this MR we've removed python 3.5 and trying to add typing on modified functions :)",py,1,1,1
+"@@ -144,11 +144,9 @@ class TimescaleListenStore(ListenStore):
+             t0 = time.monotonic()
+             min_ts = self._select_single_timestamp(True, user_name)
+             max_ts = self._select_single_timestamp(False, user_name)
++            cache.set(REDIS_USER_TIMESTAMPS + user_name, ""%d,%d"" % (min_ts, max_ts), time=0)
+             # intended for production monitoring
+             self.log.info(""timestamps %s %.2fs"" % (user_name, time.monotonic() - t0))
+-            if min_ts and max_ts:
+-                cache.set(REDIS_USER_TIMESTAMPS + user_name,
+-                          ""%d,%d"" % (min_ts, max_ts), time=0)
+ 
+         return min_ts, max_ts
+ ",can we add to the docstring of select_single_timestamp to say that it returns a sentinel 0 in the case that they user has no listens?,py,1,1,1
+"@@ -38,6 +38,7 @@ VIOLATION_RESOURCES = {
+     'FIREWALL_WHITELIST_VIOLATION': 'firewall_rule_violations',
+     'GROUP_VIOLATION': 'groups_violations',
+     'KE_VERSION_VIOLATION': 'ke_version_violations',
++    'KE_JMESPATH_VIOLATION': 'ke_jmespath_violations',
+     'IAM_POLICY_VIOLATION': 'iam_policy_violations',
+     'IAP_VIOLATION': 'iap_violations',
+     'INSTANCE_NETWORK_INTERFACE_VIOLATION': (",Can we just name this as `KE_VIOLATION`? jmespath is just what we used to evaluate for the violation.,py,1,1,1
+"@@ -2042,12 +2042,10 @@ defaultdict(<class 'list'>, {'col..., 'col...})]
+         2     0     0     0
+         3    10    13    17
+         4    20    23    27
+-
+         """"""
+         applied = []
+         for column in self._internal.data_columns:
+             applied.append(self[column].shift(periods, fill_value))
+-
+         sdf = self._sdf.select(
+             self._internal.index_scols + [c._scol for c in applied])
+         internal = self._internal.copy(sdf=sdf, data_columns=[c.name for c in applied])",Can you remove unrelated changes here?,py,1,1,1
+"@@ -268,6 +268,7 @@ def _load_skill(path, course):
+ 
+     return Skill(
+         name=name,
++        filename=str(path)[len(course.course_dir)+1:],
+         id=skill_id,
+         words=words,
+         phrases=phrases,",why `str(path)` instead of just `path`?,py,1,1,1
+"@@ -0,0 +1,12 @@
++import sys
++import csv
++
++import psycopg2
++
++import config
++
++
++# NOT IMPLEMENTED
++
++def test_pairs():
++    pass",should we remove this file?,py,1,0,1
+"@@ -27,6 +27,10 @@ import queueHandler
+ import speechDictHandler
+ import characterProcessing
+ import languageHandler
++import extensionPoints
++
++# inform those who want to know that there is new speech
++preSpeech = extensionPoints.Action()
+ 
+ speechMode_off=0
+ speechMode_beeps=1","Also, this might have to be pre_speech according to the conventions.",py,1,1,1
+"@@ -247,6 +247,8 @@ class BrailleDisplayDriver(braille.BrailleDisplayDriver,ScriptableObject):
+ 			""kb:control+end"" : (""br(freedomScientific):dot4+dot5+dot6+brailleSpaceBar"",),
+ 			""kb:alt"" : (""br(freedomScientific):dot1+dot3+dot4+brailleSpaceBar"",),
+ 			""kb:alt+tab"" : (""br(freedomScientific):dot2+dot3+dot4+dot5+brailleSpaceBar"",),
++			""kb:alt+shift+tab"" : (""br(freedomScientific):dot1+dot2+dot5+dot6+brailleSpaceBar"",),
++			""kb:win+tab"" : (""br(freedomScientific):dot2+dot3+dot4+brailleSpaceBar"",),
+ 			""kb:escape"" : (""br(freedomScientific):dot1+dot5+brailleSpaceBar"",),
+ 			""kb:windows"" : (""br(freedomScientific):dot2+dot4+dot5+dot6+brailleSpaceBar"",),
+ 			""kb:windows+d"" : (""br(freedomScientific):dot1+dot2+dot3+dot4+dot5+dot6+brailleSpaceBar"",),","This one is wrong and breaks the driver currently. it should be windows, not win. @Oliver2213: Could you provide a pr that fixes this?",py,0,1,1
+"@@ -21,7 +21,7 @@ from pathlib import Path
+ 
+ import astroid
+ import pytest
+-from unittest_pyreverse_writer import Config, get_project
++from unittest_pyreverse_writer import _DEFAULTS, Config, get_project
+ 
+ from pylint.pyreverse.diadefslib import (
+     ClassDiadefGenerator,",Shouldn't this be defined in ``conftest.py`` and used as a pytest fixtures?,py,1,1,1
+"@@ -956,6 +956,13 @@ def package_preview(owner, package_name, package_hash):
+     (instance, is_public, is_team) = result
+     assert isinstance(instance.contents, RootNode)
+ 
++    log_count = (
++        db.session.query(
++            sa.func.count(Log.instance_id)
++        )
++        .filter(Log.instance_id==instance.id)
++    ).first()[0]
++
+     readme = instance.contents.children.get(README)
+     if isinstance(readme, FileNode):
+         assert len(readme.hashes) == 1","Don't think this does what you want: this will count how many times a given hash has been updated (which means, no-op or metadata-only updates). I'd assume you want the count for the package?",py,1,1,1
+"@@ -172,7 +172,7 @@ class ViewHex(View):
+     def _format(data):
+         for offset, hexa, s in strutils.hexdump(data):
+             yield [
+-                (""offset"", offset + "" ""),
++                (""offset"", offset + b"" ""),
+                 (""text"", hexa + ""   ""),
+                 (""text"", s)
+             ]","This should just be `"" ""`? strutils.hexdump returns `native()`.",py,1,1,1
+"@@ -0,0 +1,14 @@
++# A part of NonVisual Desktop Access (NVDA)
++# Copyright (C) 2021 NV Access Limited
++# This file is covered by the GNU General Public License.
++# See the file COPYING for more details.
++
++
++def applyMonkeyPatches():
++	# Apply several monkey patches to comtypes
++	# F401 - imported but unused: Patches are applied during import
++	from . import comtypesMonkeyPatches  # noqa: F401
++
++	# Apply patches to Enum, prevent cyclic references on ValueError during construction
++	from . import enumPatches
++	enumPatches.replace__new__()",Since you're grouping all monkey patches in one package can our monkey patches for `wx` be moved to it from `gui.initialize`?,py,1,1,1
+"@@ -45,6 +45,12 @@ class ResponseData(HttpEvent):
+         self.data = data
+ 
+ 
++@dataclass
++class ResponseTrailers(HttpEvent):
++    trailers: http.Headers
++    end_stream: bool = True
++
++
+ @dataclass
+ class RequestEndOfMessage(HttpEvent):
+     def __init__(self, stream_id: int):",Don't ResponseTrailers always imply `end_stream`? We can probably remove the attribute here and end the stream unconditionally.,py,1,1,1
+"@@ -34,6 +34,7 @@ from qutebrowser.keyinput import keyutils
+ val = None
+ instance = None
+ key_instance = None
++configcache = None
+ 
+ # Keeping track of all change filters to validate them later.
+ change_filters = []","hmm, `configcache` or `config_cache`? Or even just `cache` since we access it via the module, i.e. `config.cache['foo']`?",py,1,1,1
+"@@ -16,7 +16,7 @@ from select import select, error as select_error
+ import subprocess
+ import time
+ import types
+-
++import socket
+ from scapy.consts import DARWIN, FREEBSD, OPENBSD, WINDOWS
+ from scapy.compat import plain_str
+ from scapy.data import ETH_P_ALL, MTU",Also please move it to its right alphabetical place in the imports (above: native modules). Below is reserved for scapy modules,py,1,1,1
+"@@ -42,7 +42,11 @@ from .objects import (
+ 
+ 
+ def start_inprocess_executor(
+-    pipeline_context, execution_plan, intermediates_manager, step_keys_to_execute=None
++    pipeline_context,
++    execution_plan,
++    intermediates_manager,
++    step_keys_to_execute=None,
++    emit_skips=True,
+ ):
+     check.inst_param(pipeline_context, 'pipeline_context', SystemPipelineExecutionContext)
+     check.inst_param(execution_plan, 'execution_plan', ExecutionPlan)",why have a toggle for this? I would wait to add this til we have a case that needs it.,py,1,1,1
+"@@ -1444,7 +1444,8 @@ class CommandDispatcher:
+         else:
+             qnam = tab.networkaccessmanager()
+             download_manager.get(self._current_url(), user_agent=user_agent,
+-                                 qnam=qnam, target=target)
++                                 qnam=qnam, target=target,
++                                 title=self._current_title())
+ 
+     @cmdutils.register(instance='command-dispatcher', scope='window')
+     def view_source(self):","I think passing a title here makes `get_request` needlessly complicated for only this single use case. Instead, you should be able to construct a `downloads.FileDownloadTarget` here (similar to what's done above when `--dest` is given), and pass that to `.get()` instead. Then there shouldn't be any changes in `qtnetworkdownloads.py` needed at all.",py,1,1,1
+"@@ -21,6 +21,8 @@
+ 
+ import itertools
+ 
++import random as r
++
+ import numpy
+ from nupic.bindings.math import (SM32 as SparseMatrix,
+                                  SM_01_32_32 as SparseBinaryMatrix,","Yikes - we can't do this. We need to use the same random generator as used in the C code, i.e. NupicRandom. This is initialized as the member variable _random. Search for that to see how it's used.",py,1,1,1
+"@@ -647,6 +647,7 @@ def read_config_py(filename: str, raising: bool = False) -> None:
+ 
+     if api.errors:
+         raise configexc.ConfigFileErrors('config.py', api.errors)
++    config.instance.config_py_loaded = True
+ 
+ 
+ def read_autoconfig() -> None:","This means it isn't set when there were errors - but in that case, the `config.py` is still loaded, just with some errors. This should probably be done before the `if api.errors:`.",py,1,1,1
+"@@ -214,6 +214,14 @@ class TlsConfig:
+             key_size=ctx.options.key_size,
+             passphrase=ctx.options.cert_passphrase.encode(""utf8"") if ctx.options.cert_passphrase else None,
+         )
++        if self.certstore.default_ca.has_expired():
++            ctx.log.warn(
++                ""The mitmproxy certificate authority has expired!\n""
++                ""Please delete all CA-related files in your ~/.mitmproxy folder.\n""
++                ""The CA will be regenerated automatically after restarting mitmproxy.\n""
++                ""Then make sure all your clients have the new CA installed."",
++            )
++
+         for certspec in ctx.options.certs:
+             parts = certspec.split(""="", 1)
+             if len(parts) == 1:",Let's point them to the docs to use mitm.it et al.,py,1,1,1
+"@@ -631,6 +631,8 @@ class FormatChecker(BaseTokenChecker):
+             elif token[1] == ',':
+                 if not bracket_level:
+                     return False
++            elif token[1] == '.':
++                continue
+             elif token[0] not in (tokenize.NAME, tokenize.STRING):
+                 return False
+         return False","Well, yes, this is one possible solution. Thanks for a fix  ",py,0,0,1
+"@@ -1,8 +1,6 @@
+-#!/usr/bin/env python
+-
+ # ----------------------------------------------------------------------
+ # Numenta Platform for Intelligent Computing (NuPIC)
+-# Copyright (C) 2013, Numenta, Inc.  Unless you have an agreement
++# Copyright (C) 2014, Numenta, Inc.  Unless you have an agreement
+ # with Numenta, Inc., for a separate license for this software code, the
+ # following terms and conditions apply:
+ #",I think it is preferred to change to `2013-2014`.,py,1,0,1
+"@@ -153,7 +153,11 @@ def cleanup():
+ 			log.exception(""Error terminating app module %r"" % deadMod)
+ 
+ def doesAppModuleExist(name):
+-	return any(importer.find_module(""appModules.%s"" % name) for importer in _importers)
++	# #9797: when invoked from system tests, importers list isn't initialized (attribute error on a None object), thus assume no app module exists.
++	try:
++		return any(importer.find_module(""appModules.%s"" % name) for importer in _importers)
++	except AttributeError:
++		return False
+ 
+ def fetchAppModule(processID,appName):
+ 	""""""Returns an appModule found in the appModules directory, for the given application name.","I think I would prefer just to check if _importers is None and return False, rather than letting it knowingly fail. Though I'd like to also understand why systemTestSpy actually causes doesAppModule exist to be called? can you provide an example traceback on the issue?",py,1,1,1
+"@@ -269,6 +269,13 @@ def set_rate_limits(per_token_limit, per_ip_limit, window_size):
+         set_rate_limits(per_token_limit, per_ip_limit, window_size)
+ 
+ 
++@cli.command(name=""update_all_user_listen_counts"")
++def update_all_user_listen_counts():
++    """""" Scans listen table and update listen counts for all users """"""
++    application = webserver.create_app()
++    with application.app_context():
++        ts_update_user_listen_counts()
++
+ @cli.command(name=""recalculate_all_user_data"")
+ def recalculate_all_user_data():
+     """"""",Could use updating.,py,1,0,1
+"@@ -444,6 +444,9 @@ class Daemon(Logger):
+             daemon_jobs.append(self.watchtower.run)
+         if self.network:
+             self.network.start(jobs=[self.fx.run])
++            # prepare lightning functionality, also load channel db early
++            self.network.maybe_init_lightning()
++            self.network.channel_db.load_data()
+ 
+         self.taskgroup = TaskGroup()
+         asyncio.run_coroutine_threadsafe(self._run(jobs=daemon_jobs), self.asyncio_loop)","if we start calling `channel_db.load_data()` from multiple places, we should add some kind of guarantees into `load_data` that it only runs once it always runs on the sql thread, so no need for locking; it could simply have an early return if it has already run once",py,1,1,1
+"@@ -193,7 +193,7 @@ class SparkSubmitTaskTest(unittest.TestCase):
+         def interrupt():
+             raise KeyboardInterrupt()
+ 
+-        proc.return_value.poll = interrupt
++        proc.return_value.wait = interrupt
+         try:
+             job = TestSparkSubmitTask()
+             job.run()",btw ideally we should use the mock library for this. but that's prob outside the scope of this PR,py,0,0,1
+"@@ -10,6 +10,7 @@ from mmcv.utils import build_from_cfg
+ 
+ from mmdet.core.evaluation.bbox_overlaps import bbox_overlaps
+ from mmdet.datasets.builder import PIPELINES
++from .utils import create_random_bboxes
+ 
+ 
+ def test_resize():","If relative import is adopted, is it impossible to run unit tests in the current folder?",py,1,1,1
+"@@ -140,6 +140,7 @@ class HTTPFlow(flow.Flow):
+     """"""
+     request: HTTPRequest
+     response: Optional[HTTPResponse] = None
++    trailers: http.Headers
+     error: Optional[flow.Error] = None
+     """"""
+     Note that it's possible for a Flow to have both a response and an error",I suppose trailers are optional as well?,py,1,1,1
+"@@ -138,7 +138,18 @@ def _filter_outputs_by_handle(
+     step_key = str(node_handle)
+     output_found = False
+     for step_output_handle, value in output_dict.items():
+-        if (
++
++        # For the mapped output case, where step keys are in the format
++        # ""step_key[upstream_mapped_output_name]"" within the step output handle.
++        if step_output_handle.step_key.startswith(f""{step_key}[""):
++            output_found = True
++            key_start = step_output_handle.step_key.find(""["")
++            key_end = step_output_handle.step_key.find(""]"")
++            upstream_mapped_output_name = step_output_handle.step_key[key_start + 1 : key_end]
++            mapped_outputs[upstream_mapped_output_name] = value
++
++        # For all other cases, search for exact match.
++        elif (
+             step_key == step_output_handle.step_key
+             and step_output_handle.output_name == output_name
+         ):","I know not exactly inside the scope of this PR, but looked at the type annotation while trying to grok it - could we change it from `Any` to `Dict[str, Any]`?",py,0,1,1
+"@@ -7,5 +7,5 @@ Workflow mgmgt + task scheduling + dependency resolution.
+ __author__ = 'The Luigi Authors'
+ __contact__ = 'https://github.com/spotify/luigi'
+ __license__ = 'Apache License 2.0'
+-__version__ = '2.8.13'
++__version__ = '3.0.0b2'
+ __status__ = 'Production'",@honnix shouldn't we change version here prior to merge?,py,0,1,1
+"@@ -46,7 +46,6 @@ CONSOLE_COLORS_TO_RGB=( #http://en.wikipedia.org/wiki/Color_Graphics_Adapter
+ COMMON_LVB_UNDERSCORE=0x8000
+ 
+ 
+-
+ @wincon.PHANDLER_ROUTINE
+ def _consoleCtrlHandler(event):
+ 	if event in (wincon.CTRL_C_EVENT,wincon.CTRL_BREAK_EVENT):",Looks like removing this blank line is the only change in this file. This change can probably be removed.,py,1,1,1
+"@@ -124,10 +124,10 @@ class TypingChecker(BaseChecker):
+                 ""type"": ""yn"",
+                 ""metavar"": ""<y_or_n>"",
+                 ""help"": (
+-                    ""Set to ``no`` if the app / libary does NOT need to ""
+-                    ""support runtime introspection of type ""
+-                    ""annotations. Only applies to Python version ""
+-                    ""3.7 - 3.9""
++                    ""Set to ``no`` if the app / library does NOT need to ""
++                    ""support runtime introspection of type annotations. ""
++                    ""Only change it if you understand what that means. ""
++                    ""Applies to Python version 3.7 - 3.9""
+                 ),
+             },
+         ),","Could we explain ""what that means"" or link to the doc that explains it here ? :)",py,1,1,1
+"@@ -80,7 +80,11 @@ kwargs = delimitedList(kwarg)
+ 
+ 
+ def setRaw(s, loc, toks):
+-    toks[0].raw = s[toks[0].start:toks[0].end]
++    try:
++        toks[0]['raw'] = s[toks[0].start:toks[0].end]
++    except AttributeError:
++        # Accommodate version < 3 of the PyParsing API.
++        toks[0].raw = s[toks[0].start:toks[0].end]
+ 
+ 
+ call = Group(","The code you have in the try-block should be compatible with pyparsing pre-3.0 and post-3.0. It's the code in the except block that only works in pyparsing pre 3.0. I don't think the code in the try block will *ever* raise `AttributeError`, in either version of pyparsing.",py,1,1,1
+"@@ -1614,7 +1614,7 @@ class CloudSqlInstanceIterator(resource_iter_class_factory(
+         api_method_name='iter_cloudsql_instances',
+         resource_name='cloudsql_instance',
+         api_method_arg_key='projectNumber',
+-        resource_validation_method_name='cloudsql_api_enabled')):
++        resource_validation_method_name='enumerable')):
+     """"""The Resource iterator implementation for CloudSQL Instance.""""""
+ 
+ ",Please also remove the cloudsql_api_enabled function at line 734.,py,0,1,1
+"@@ -0,0 +1,17 @@
++class InboxController < ApplicationController
++  include Mandrill::Rails::WebHookProcessor
++
++  def handle_inbound(event_payload)
++    handler = IncomingMail::Handler.new
++    resp = handler.handle(event_payload)
++    Rails.logger.warn(resp.inspect)
++    if resp.action == IncomingMail::Response::ERROR
++      # TODO do we want mandrill to keep trying on our error?
++      head 500
++    elsif resp.action == IncomingMail::Response::DROPPED
++      head 204 # TODO does mandrill treat this like 200?
++    else
++      head 200 # default tells mandrill to stop trying to send the event
++    end
++  end
++end",is there an error tracking system we can use to log this with?,rb,1,1,1
+"@@ -239,7 +239,14 @@ module Travis
+ 
+           def stop_postgresql
+             sh.echo ""PostgreSQL package is detected. Stopping postgresql service. See https://github.com/travis-ci/travis-ci/issues/5737 for more information."", ansi: :yellow
+-            sh.cmd ""sudo service postgresql stop"", echo: true
++            command = <<~ENDOFBASH
++              if [[ ""$TRAVIS_INIT"" = systemd ]]; then
++                sudo systemctl stop postgresql
++              else
++                sudo service postgresql stop
++              fi
++            ENDOFBASH
++            sh.cmd command, echo: true
+           end
+       end
+     end",`==` for equality check please!,rb,1,1,0
+"@@ -438,7 +438,7 @@ module Beaker
+           @logger.trace result.stdout
+         end
+       else # a directory with ignores
+-        dir_source = Dir.glob(""#{source}/**/*"").reject do |f|
++        dir_source = Dir.glob(""#{source}/**/{*,.*}"").reject do |f|
+           f.gsub(/\A#{Regexp.escape(source)}/, '') =~ ignore_re #only match against subdirs, not full path
+         end
+         @logger.trace ""After rejecting ignored files/dirs, going to scp [#{dir_source.join("", "")}]""",Can you update this PR with tests for this?,rb,0,1,1
+"@@ -1,12 +1,8 @@
+ <% org = template.org.abbreviation.present? ? template.org.abbreviation : template.org.name %>
+-<% if example_answer.present? || guidance.present? %>
++<% if guidance.present? %>
+   <dl<%= for_plan ? ' class=""dl-horizontal""' : '' %>>
+-    <% if example_answer.present? %>
+-      <dt><%= _('Example answer') %></dt>
+-      <dd><%= raw example_answer.text %><dd>
+-    <% end %>
+     <% if guidance.present? %>
+-      <dt><%= _('Guidance') %></dt>
++      <dt><%= template.customization_of.nil? ? _('Guidance') : _('%{org} Guidance') % { org: guidance.org.short_name } %></dt>
+       <dd><%= raw guidance.text %></dd>
+     <% end %>
+   </dl>",this if is no longer needed,rb,1,0,1
+"@@ -15,6 +15,10 @@ describe Bolt::SSH do
+   let(:port) { 2224 }
+   let(:command) { ""pwd"" }
+   let(:ssh) { Bolt::SSH.new(hostname, port, user, password) }
++  let(:key) {
++    { config: Bolt::Config.new(key: Dir["".vagrant/**/private_key""],
++                               insecure: true) }
++  }
+   let(:insecure) { { config: Bolt::Config.new(insecure: true) } }
+   let(:echo_script) { <<BASH }
+ for var in ""$@""","It looks like this depends on an external file, so probably won't work for anyone else? Note we don't run tests marked with `vagrant: true` in appveyor or travis, but only when running `bundle exec rake test`.",rb,1,1,1
+"@@ -83,7 +83,7 @@ module Bolt
+           raise Bolt::Error.unknown_task(task_name) unless tasksig
+ 
+           Bolt::Task::Run.validate_params(tasksig, params) if params
+-          Bolt::Task.new(tasksig.task_hash)
++          Bolt::Task.from_task_signature(tasksig)
+         end
+       end
+ ",Do we still need this line (or function) with these changes?,rb,1,1,1
+"@@ -31,8 +31,7 @@ module LinkAccessors
+           cleaned_uri = String.clean_url(uri)
+           cached_uri = send cache_method
+           return if !cached_uri.nil? && cleaned_uri == cached_uri
+-          update_link_uri(accessor, links.of_category(Link::CATEGORIES[link_category]).first_or_initialize,
+-                          cleaned_uri, link_category.to_s)
++          update_link_uri(accessor, obtain_link(link_category), cleaned_uri, link_category.to_s)
+         end
+       end
+     end","using ""links....first_or_initialize"" is adding the link to the project.links now. We don't want that as it is possible that the setting of the uri to '' is used to delete the link from the array (or never create it in the first place on projects#create). We need to break that out into the method below.",rb,1,1,1
+"@@ -76,7 +76,7 @@ describe CatalogController do
+           expect(session[:search].keys).to include :id
+           
+           search = Search.find(session[:search][:id])
+-          expect(search.query_params[:q]).to eq @user_query
++          expect(search.query_params['q']).to eq @user_query
+         end
+       end
+ ","There isn't a backwards-compat issue here, right? The old hash was a HWIA, and now we're stuck with a stringified hash?",rb,1,0,1
+"@@ -1,5 +1,11 @@
+ class TeamsController < ApplicationController
+-  before_filter :must_be_team_owner
++  before_filter :must_be_team_owner, only: :edit
++
++  def index
++    @catalog = Catalog.new
++
++    render layout: 'empty-body'
++  end
+ 
+   def edit
+     @team = current_team",Should this be `teams#new`? We're not displaying a list of teams.,rb,1,1,1
+"@@ -4,11 +4,15 @@
+ 
+ <header>
+   <div class=""topic-image"">
+-    <%= image_tag ""topics/#{topic.slug}.svg"" %>
++    <%= link_to topic do %>
++      <%= image_tag ""topics/#{topic.slug}.svg"" %>
++    <% end %>
+   </div>
+ 
+   <div class=""topic-title"">
+-    <h2><%= trail.topic_name %></h2>
++    <div class=""trail-topic-name"">
++      <%= render topic %>
++    </div>
+     <h1><%= trail.name %></h1>
+     <p><%= trail.description %></p>
+   </div>","This doesn't seem super semantic. How do you feel about it, @Magnus-G ?",rb,0,1,1
+"@@ -1,13 +1,13 @@
+ <!DOCTYPE html>
+ <html>
+   <head>
+-    <meta charset=""utf-8"">
+     <title>C2</title>
+-    <meta name=""viewport"" content=""width=device-width, initial-scale=1"" />
++    <meta http-equiv=""Content-Type"" content=""text/html; charset=utf-8"" />
++    <meta name=""viewport"" content=""width=device-width"" />
+     <link rel=""stylesheet"" type=""text/css"" href=""<%= stylesheet_url(""mailer_new.css"") %>"" />
++    <%= render 'mail_shared/outlook_fix' %>
+   </head>
+   <body>
+     <%= yield %>
+-    <%= render partial: ""mail_shared/footer"" %>
+   </body>
+ </html>",why not put the footer code into a shared partial? I think we will be using it for all emails so good to just have in layout. can take lines 142 -> 157 from attachment template and put it in `mail_shared/_footer.html.haml`,rb,0,1,1
+"@@ -400,7 +400,8 @@ module RSpec::Core
+     # @attr duration [Float] the time taken (in seconds) to run the suite
+     # @attr examples [Array<RSpec::Core::Example>] the examples run
+     # @attr number_of_examples [Fixnum] the number of examples to profile
+-    ProfileNotification = Struct.new(:duration, :examples, :number_of_examples)
++    # @attr profiler [RSpec::Core::Profiler] the profiler used to capture examples
++    ProfileNotification = Struct.new(:duration, :examples, :number_of_examples, :profiler)
+     class ProfileNotification
+       # @return [Array<RSpec::Core::Example>] the slowest examples
+       def slowest_examples","I don't think the profiler formatter needs to be exposed of profile notification. Seems like once you merge the example/example group event handling into the existing profiler formatter this will no longer be needed on the notification object anymore, right?",rb,1,1,1
+"@@ -0,0 +1,8 @@
++require 'spec_helper'
++
++describe 'Purchases' do
++  it 'raise not found if no purchase exists' do
++    visit purchase_path('robots.txt')
++    expect(page.status_code).to eq(404)
++  end
++end",I'd try writing this as a controller spec.,rb,0,0,1
+"@@ -53,6 +53,13 @@ describe Mentor do
+ 
+       expect(mentor.active_mentees).to eq [active]
+     end
++
++    it 'eager loads mentees' do
++      mentor = create(:mentor)
++
++      expect { mentor.reload.active_mentees }.
++        to eager_load { create(:subscriber, :includes_mentor, mentor: mentor) }
++    end
+   end
+ 
+   describe '#active_mentee_count' do","Place the . on the next line, together with the method name.",rb,1,1,1
+"@@ -12,7 +12,9 @@ class ProposalsController < ApplicationController
+ 
+   def show
+     @proposal = proposal.decorate
+-    cookies[:detail] = params[:detail]
++    if !params[:detail].blank?
++      cookies[:detail] = params[:detail]
++    end
+     mode = cookies[:detail]
+     if mode == ""new""
+       @client_data_instance ||= proposal.client_data",@jessieay I had to re-add this check because the cookie was getting wiped when the query wasnt set.,rb,0,0,1
+"@@ -35,6 +35,7 @@ describe ForumsController do
+   end
+ 
+   it 'admin show with pagination' do
++    skip 'TODO: This test never ran correctly. It silently failed due to no assertions.'
+     create_list(:topic, 20)
+     login_as user
+     get :show, id: forum.id",These really should be fixed for real.,rb,0,0,1
+"@@ -1,4 +1,13 @@
++require 'logger'
++
+ module Bolt
++  class << self
++    attr_accessor :log_level
++    attr_accessor :config
++  end
++
++  @config = {}
++
+   require 'bolt/executor'
+   require 'bolt/node'
+ end","thanks for moving this up here, seems like a much more intuitive place",rb,1,0,1
+"@@ -218,7 +218,8 @@ class Plan < ActiveRecord::Base
+ 
+         if self.save!
+           # Send an email confirmation to the owners and co-owners
+-          deliver_if(recipients: self.owner_and_coowners, key: 'users.feedback_requested') do |r|
++          owners = User.joins(:roles).where('roles.plan_id =? AND roles.access IN (?)', self.id, Role.access_values_for(:administrator))
++          deliver_if(recipients: owners, key: 'users.feedback_requested') do |r|
+             UserMailer.feedback_confirmation(r, self, user).deliver_now
+           end
+           # Send an email to all of the org admins as well as the Org's administrator email","owner_and_coowners class method is still used after the change? If not, please remove it!",rb,1,1,1
+"@@ -0,0 +1,3 @@
++<h2><%= t ""changeset.rss.comment"", :author => comments_entry.author.display_name, 
++  :changeset_id => comments_entry.changeset.id.to_s %></h2>
++<%= render :partial => 'comment', :object => comments_entry %>",What's the point of extracting this into a partial? It doesn't look like it's used anywhere else?,rb,1,1,1
+"@@ -2,6 +2,10 @@
+ 
+ require_relative '../../../vendored/require_vendored.rb'
+ 
++# Add bolt spec helpers
++bolt_dir = Gem::Specification.find_by_name('bolt').gem_dir
++$LOAD_PATH.unshift(File.join(bolt_dir, 'spec', 'lib'))
++
+ # Ensure tasks are enabled when rspec-puppet sets up an environment
+ # so we get task loaders.
+ Puppet[:tasks] = true","Seems inconsistent with the `require_relative` above. If the module is moved out of bolt, the relative require will need to reflect that too.",rb,1,1,1
+"@@ -3,6 +3,7 @@ require 'rspec/support/spec/library_wide_checks'
+ RSpec.describe RSpec do
+   fake_libs = File.expand_path('../../support/fake_libs', __FILE__)
+   allowed_loaded_features = [
++    /open3.rb/,       # Used by Bisect::Runner, which is not normally loaded
+     /optparse\.rb/,   # Used by OptionParser.
+     /rbconfig\.rb/,   # loaded by rspec-support for OS detection.
+     /shellwords\.rb/, # used by ConfigurationOptions and RakeTask.","My reading of this is that this would not be loaded except in specs utilising the bisect feature, can we not use the isolated environment stuff to test that feature avoiding this?",rb,1,1,1
+"@@ -0,0 +1,15 @@
++require 'beaker/tasks/rake_task'
++
++Beaker::Tasks::RakeTask.new
++
++desc ""Run Beaker PE tests""
++Beaker::Tasks::RakeTask.new(""beaker:test:pe"",:hosts) do |t,args|
++  t.type = 'pe'
++  t.hosts = args[:hosts]
++end
++
++desc ""Run Beaker Git tests""
++Beaker::Tasks::RakeTask.new(""beaker:test:git"",:hosts) do |t,args|
++  t.type = 'git'
++  t.hosts = args[:hosts]
++end",The task created by this line doesn't seem to work. I get NameError: undefined local variable or method `failure_message` whenever I run it. It also doesn't seem to actually use the :hosts and :type argument that I pass to it whereas the tasks defined below seem to work fine.,rb,0,0,1
+"@@ -36,7 +36,7 @@ feature ""Visitor"" do
+ 
+   def expect_page_to_have_preview_cta
+     expect(page.body).to include(
+-      I18n.t(""watchables.preview.cta"", subscribe_url: subscribe_path).html_safe
++      I18n.t(""watchables.preview.cta"", subscribe_url: join_path).html_safe
+     )
+   end
+ end",Put a comma after the last parameter of a multiline method call.,rb,1,1,1
+"@@ -1,5 +1,7 @@
+ module Gsa18f
+   class DashboardController < ApplicationController
++    before_action :check_disabled_client
++
+     def index
+       @rows = self.format_results(self.queryset)
+     end","seems like this `check_disabled_client` check should be in `application_controller` and just selectively skipped? (I think the only page we want disabled clients to be able to see is the home page, right?) That would ensure that future controllers also use the check rather than needing to explicitly add it to each controller",rb,1,1,1
+"@@ -0,0 +1,5 @@
++class AddUuiDtoProject < ActiveRecord::Migration
++  def change
++    add_column :projects, :uuid, :string
++  end
++end",This class name is a bit odd. Shouldn't it be `AddUuidToProject` (note capitalization),rb,1,1,1
+"@@ -0,0 +1,16 @@
++class Account::Subscription
++  attr_reader :account
++
++  def initialize(account)
++    @account = account
++  end
++
++  def unsubscribe(notification_type = :all)
++    attribute_name = case notification_type
++                     when :kudo then :email_kudos
++                     when :post then :email_posts
++                     else :email_master
++                     end
++    account.update_attribute(attribute_name, false)
++  end
++end",This file can go into `app/models/account/subscription.rb`?,rb,0,0,1
+"@@ -33,13 +33,14 @@
+     <div class=""panel-group"" id=""phases_accordion"" role=""tablist"">
+       <!-- If template has phases-->
+       <% if template_hash[:template][:phases].present? %>
++        <% i = 0 %>
+         <% template_hash[:template][:phases].each do |phase_no, phase_hash| %>
+           <% phase = phase_hash[:data] %>
+             <div class=""panel panel-default"">
+               <div class=""heading-button"" role=""button"" data-toggle=""collapse""
+                    data-parent=""phases_accordion"" 
+                    href=""#collapsePhase<%= phase.id %>""
+-                   aria-expanded=""false"" 
++                   aria-expanded=""<%= i == 0 ? 'true' : 'false' %>"" 
+                    aria-controls=""#collapsePhase<%= phase.id %>"">
+                    
+                 <div class=""panel-heading"" role=""tab"" id=""<%= ""headingPhase#{phase.id}"" %>"">","We could check for first instead of adding an extra variable and its counter ``` template_hash[:template][:phases].each do |o| aria-expanded=""<%= template_hash[:template][:phases].first == o ? 'true' : 'false' %>"" end",rb,1,1,1
+"@@ -45,7 +45,8 @@ public class Grid {
+ 
+   public List<Node> getNodes() {
+     return distributorStatus.get().getNodes().stream()
+-      .map(summary -> new Node(summary.getNodeId(), summary.getUri(), summary.isUp(), summary.getMaxSessionCount()))
++      .map(summary -> new Node(summary.getNodeId(), summary.getUri(), summary.isUp(),
++                               summary.getMaxSessionCount(), summary.getStereotypes()))
+       .collect(ImmutableList.toImmutableList());
+   }
+ ",Break things on to one parameter per line now.,rb,1,1,1
+"@@ -134,5 +134,9 @@ class UserRolesControllerTest < ActionController::TestCase
+     end
+     assert_redirected_to user_path(target_user.display_name)
+     assert_equal ""The string `no_such_role' is not a valid role."", flash[:error]
++
++    # Revoking administrator role from current user should fail
++    post :revoke, :params => { :display_name => administrator_user.display_name, :role => ""administrator"" }
++    assert_redirected_to user_path(administrator_user.display_name)
+   end
+ end",Can we assert that the flash message is shown here... I think there some examples of doing it in other tests.,rb,1,1,1
+"@@ -20,7 +20,7 @@ class Coupon
+   end
+ 
+   def valid?
+-    stripe_coupon.present?
++    stripe_coupon.present? && stripe_coupon.valid
+   end
+ 
+   private","Just to be sure, the `stripe_coupon` has the method `valid`, not `valid?`?",rb,1,1,1
+"@@ -1,5 +1,10 @@
+ # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+-# SPDX-License-Identifier: Apache-2.0
++# SPDX - License - Identifier: Apache - 2.0
++
++# Purpose
++# This code example demonstrates how to receives messages in a queue in Amazon Simple Queue Service (Amazon SQS).
++
++# snippet-start:[s3.ruby.sqs-ruby-example-get-messages.rb]
+ 
+ require 'aws-sdk-sqs'
+ require 'aws-sdk-sts'",receive (remove 's'),rb,1,0,0
+"@@ -318,4 +318,11 @@ public interface DriverCommand {
+   // Mobile API
+   String GET_NETWORK_CONNECTION = ""getNetworkConnection"";
+   String SET_NETWORK_CONNECTION = ""setNetworkConnection"";
++
++  // Cast Media Router API
++  String GET_CAST_SINKS = ""getCastSinks"";
++  String SET_CAST_SINK_TO_USE = ""selectCastSink"";
++  String START_CAST_TAB_MIRRORING = ""startCastTabMirroring"";
++  String GET_CAST_ISSUE_MESSAGE = ""getCastIssueMessage"";  
++  String STOP_CASTING = ""stopCasting"";    
+ }",These command names are specific to Chromium-based browsers. Please move to `ChromiumDriverCommand`,rb,1,1,1
+"@@ -53,6 +53,7 @@ class Topic < ActiveRecord::Base
+       raw_trail_map = http.body_str
+       self.trail_map = JSON.parse(raw_trail_map)
+       self.summary = trail_map['description']
++      self.name = trail_map['name']
+       if trail_map['prerequisites'].present?
+         trail_map['prerequisites'].each do |related|
+           self.related_topics << Topic.find_by_slug(related)",We should clean up this method by using the extract method pattern.,rb,1,1,1
+"@@ -4,12 +4,13 @@ module Travis
+       class Test
+         class Scala < Test
+           class Config < Hashr
+-            define :scala => '2.9.1'
++            define :scala => 'undefined'
+           end
+ 
+           def setup
+             super
+-            shell.echo(""Using Scala #{config.scala}"")
++            # Tell what version of Scala is expected (or display 'undefined' if managed by build tool)
++            shell.echo(""Expect to run tests with Scala version '#{config.scala}'"")
+           end
+ 
+           def install",Should we find a better naming ? I think it's not so bad...,rb,1,1,1
+"@@ -1,9 +1,13 @@
+ class ProductsController < ApplicationController
+   def index
+-    @courses = Course.only_public.by_position
++    @courses = Course.only_public.by_position.in_person
++    @online_courses = Course.only_public.by_position.online
++    # This @workshops line can be removed on 2013-01-16, when Product.workshops
++    # will be empty and all online workshops will be in Course. Remember to edit
++    # index.html.erb and remove @workshops there, too.
++    @workshops = Product.workshops.active.ordered
+     @books = Product.books.active.ordered
+     @videos = Product.videos.active.ordered
+-    @workshops = Product.workshops.active.ordered
+   end
+ 
+   def show",Should we have integration coverage for this functionality?,rb,1,1,1
+"@@ -0,0 +1,15 @@
++class HelpController < ApplicationController
++  layout 'help'
++
++  def index
++    dir = Rails.root.join('app', 'views', 'help', '*.md')
++    files = Dir.glob(dir)
++    @pages = files.map{|file| File.basename(file, '.md') }.sort
++  end
++
++  def show
++    page = params[:id]
++    # TODO make sure this isn't a security hole
++    render ""help/#{page}""
++  end
++end",Probably best to use a whitelist. Maybe pull out the listing logic in `index` into a shared function (or class var) to get such a list. Only render if `page` is a member of that list (404 otherwise)?,rb,1,1,1
+"@@ -171,7 +171,9 @@ def verify_no_deny_list_words(file_contents, file_location):
+ 
+ def verify_no_secret_keys(file_contents, file_location):
+     """"""Verify the file does not contain 20- or 40- length character strings,
+-    which may be secret keys. Allow strings in the allow list.""""""
++    which may be secret keys. Allow strings in the allow list in
++    https://github.com/awsdocs/aws-doc-sdk-examples/blob/master/scripts/checkin_tests.py,
++    and in and in src/allow.list.xml in the AWSDocsChecklistCodeSampleCatalog GitFarm repo.""""""
+     error_count = 0
+     twenties = re.findall(""[^A-Z0-9][A][ACGIKNPRS][A-Z]{2}[A-Z0-9]{16}[^A-Z0-9]"",
+                           file_contents)","""and in and in"" -> ""and in"" (make same change to all occurrences in this doc).",rb,1,1,1
+"@@ -94,6 +94,12 @@ module Beaker
+             @cmd_options[:debug_errors] = bool
+           end
+ 
++          opts.on '--exec-manual-tests',
++                  'Execute manual tests',
++                  '(default: false)' do |bool|
++            @cmd_options[:exec_manual_tests] = bool
++          end
++
+           opts.on '--root-keys',
+                   'Install puppetlabs pubkeys for superuser',
+                   '(default: false)' do |bool|","In the current implementation of subcommands, this option will need to be copied over the `beaker test run` group.",rb,1,1,1
+"@@ -65,10 +65,6 @@ class Product < ActiveRecord::Base
+     type.underscore
+   end
+ 
+-  def fulfilled_with_github?
+-    github_team.present?
+-  end
+-
+   def to_aside_partial
+     ""#{self.class.name.underscore.pluralize}/aside""
+   end","This was actually unused on `master`, so I removed it instead of fixing it with this change.",rb,0,0,1
+"@@ -20,13 +20,15 @@ Workshops::Application.routes.draw do
+     resource :team, only: :edit
+   end
+ 
+-  get '/pages/tmux' => redirect('/products/4-humans-present-tmux')
++  get '/pages/tmux' => redirect('https://www.youtube.com/watch?v=CKC8Ph-s2F4')
+ 
+   if Rails.env.staging? || Rails.env.production?
+     get '/products/:id' => redirect('/workshops/18-test-driven-rails'),
+       constraints: { id: /(10|12).*/ }
+     get '/products/:id' => redirect('/workshops/19-design-for-developers'),
+       constraints: { id: /(9|11).*/ }
++    get '/products/:id' => redirect('https://www.youtube.com/watch?v=CKC8Ph-s2F4'),
++      constraints: { id: /(4).*/ }
+     get '/products/14' => redirect('/prime')
+     get '/products/14-prime' => redirect('/prime')
+   end",Align the elements of a hash literal if they span more than one line.,rb,1,1,1
+"@@ -17,7 +17,7 @@ class ManagersControllerTest < ActionController::TestCase
+     login_as accounts(:admin)
+     get :index, project_id: @proj.to_param
+     must_respond_with :success
+-    assert_tag tag: 'a', attributes: { class: 'btn btn-primary' }
++    must_select 'a.btn.btn-primary'
+     assert_select '.col-md-4 a.btn.btn-primary', text: 'I manage this project on Open Hub'
+   end
+ ",assert_tag is missing. Must switch to assert_select syntax.,rb,1,1,1
+"@@ -84,9 +84,12 @@ module Travis
+ 
+           def submodules
+             self.if '-f .gitmodules' do
++              if config[:git][:submodules_depth]
++                depth_opt = "" --depth=#{config[:git][:submodules_depth]}""
++              end
+               cmd 'echo -e ""Host github.com\n\tStrictHostKeyChecking no\n"" >> ~/.ssh/config', echo: false
+               cmd 'git submodule init', fold: ""git.#{next_git_fold_number}""
+-              cmd 'git submodule update', assert: true, fold: ""git.#{next_git_fold_number}"", retry: true
++              cmd ""git submodule update #{depth_opt}"", assert: true, fold: ""git.#{next_git_fold_number}"", retry: true
+             end
+           end
+ ",won't this explode if `depth_opt` isn't set?,rb,1,1,1
+"@@ -0,0 +1,17 @@
++module Blacklight
++  module Rendering
++    class Microdata < AbstractStep
++      include ActionView::Helpers::TagHelper
++      def render
++        return next_step(values) unless config.itemprop
++        next_step(values.map { |x| itemprop(x, config.itemprop) })
++      end
++
++      private
++
++        def itemprop(val, itemprop)
++          content_tag :span, val, itemprop: itemprop
++        end
++    end
++  end
++end",2 trailing blank lines detected.,rb,1,0,1
+"@@ -33,6 +33,7 @@ module Travis
+           # easier to find and our `git clone`'d libraries are found by the
+           # `go` commands.
+           set 'GOPATH', ""#{HOME_DIR}/gopath:$GOPATH""
++          set 'PATH', ""$PATH:$GOPATH/bin""
+           cmd ""mkdir -p #{HOME_DIR}/gopath/src/#{data.source_host}/#{data.slug}"", assert: false, timing: false
+           cmd ""rsync -az ${TRAVIS_BUILD_DIR}/ #{HOME_DIR}/gopath/src/#{data.source_host}/#{data.slug}/"", assert: false, timing: false
+           set ""TRAVIS_BUILD_DIR"", ""#{HOME_DIR}/gopath/src/#{data.source_host}/#{data.slug}""",does GVM do this for us?,rb,1,1,1
+"@@ -27,7 +27,7 @@ import org.openqa.selenium.internal.Locatable;
+  */
+ public abstract class SingleKeyAction extends KeysRelatedAction {
+   protected final Keys key;
+-  private static final Keys[] MODIFIER_KEYS = {Keys.SHIFT, Keys.CONTROL, Keys.ALT};
++  private static final Keys[] MODIFIER_KEYS = {Keys.SHIFT, Keys.CONTROL, Keys.ALT, Keys.META, Keys.COMMAND, Keys.LEFT_ALT, Keys.LEFT_CONTROL, Keys.LEFT_SHIFT};
+ 
+   protected SingleKeyAction(Keyboard keyboard, Mouse mouse, Keys key) {
+     this(keyboard, mouse, null, key);","LEFT_ALT, LEFT_CONTROL, and LEFT_SHIFT should already be aliases. META could be an alias for ALT but probably isn't yet.",rb,1,1,1
+"@@ -72,7 +72,8 @@ RSpec.describe ""FailedExampleNotification"" do
+     let(:exception) { instance_double(Exception, :backtrace => [ ""#{__FILE__}:#{__LINE__}""], :message => 'Test exception') }
+ 
+     before do
+-      allow(example).to receive(:example_group) { class_double(RSpec::Core::ExampleGroup, :metadata => {}, :parent_groups => []) }
++      metadata = {:shared_group_name => 'double shared group'}
++      allow(example).to receive(:example_group) { class_double(RSpec::Core::ExampleGroup, :metadata => metadata, :parent_groups => [], location: ""#{__FILE__}:#{__LINE__}"") }
+     end
+ 
+     it 'should return failure_lines without color' do","You need to use hash rocket syntax here, as we support `1.8.7` and this breaks the travis build. Also why is this necessary, it's not clear to me...",rb,1,1,1
+"@@ -23,4 +23,14 @@ module RSpecHelpers
+     end
+   end
+ 
++  def expect_deprecation_with_call_site(file, line)
++    expect(RSpec.configuration.reporter).to receive(:deprecation) do |options|
++      expect(options[:call_site]).to include([file, line].join(':'))
++    end
++  end
++
++  def allow_deprecation
++    allow(RSpec.configuration.reporter).to receive(:deprecation)
++  end
++
+ end","I can't get this helper to fail. I've passed incorrect line numbers and it always passes. I see the block get run, but it doesn't seem this inner expectation is properly raised.",rb,0,0,1
+"@@ -72,8 +72,6 @@ class ApiKeysController < ApplicationController
+     @api_key = ApiKey.find params[:id]
+   rescue ActiveRecord::RecordNotFound
+     raise ParamRecordNotFound
+-  rescue e
+-    raise e
+   end
+ 
+   def find_models","Is this a part of the effort of masking `ActiveRecord::RecordNotFound` reports in our monitoring software? If so, I suspect it may not do what we want. I think the monitoring software will detect the creation of any error. After all, we handle `ActiveRecord::RecordNotFound` errors and show a 404 page in most instances. The exception is being handled, but is still being reported. I suspect that to really prevent non-error exceptions, like when users ask for non-existent records, we will need to use ActiveRecord to find records without raising exceptions; i.e.: using `Account.find_by login: params[login]`",rb,1,1,0
+"@@ -29,10 +29,9 @@ module Faker
+         fetch('elder_scrolls.first_name')
+       end
+ 
+-      def first_name
++      def last_name
+         fetch('elder_scrolls.last_name')
+       end
+-
+     end
+   end
+ end",Fixing duplicated methods. Copy and   and adding specs for the new methods,rb,0,0,1
+"@@ -1171,6 +1171,18 @@ You can use icons for admonitions by setting the 'icons' attribute.
+       output = render_string input, :safe => Asciidoctor::SafeMode::SAFE, :attributes => {'docdir' => File.dirname(__FILE__)}
+       assert_xpath '//*[@class=""admonitionblock tip""]//*[@class=""icon""]/img[@src=""data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=""][@alt=""Tip""]', output, 1
+     end
++
++    test 'can use font-based icons' do
++      input = <<-EOS
++:icons: font
++
++[TIP]
++You can use icons for admonitions by setting the 'icons' attribute.
++      EOS
++
++      output = render_string input, :safe => Asciidoctor::SafeMode::SERVER
++      assert_xpath '//*[@class=""admonitionblock tip""]//*[@class=""icon""]/i[@class=""icon-tip""]', output, 1
++    end
+   end
+ 
+   context 'Image paths' do","That is one nasty xpath, can you clean that up any?",rb,1,1,1
+"@@ -97,8 +97,13 @@ module Travis
+           set 'CI', 'true', echo: false
+           set 'CONTINUOUS_INTEGRATION', 'true', echo: false
+           set 'HAS_JOSH_K_SEAL_OF_APPROVAL', 'true', echo: false
+-          data.env_vars.each do |var|
+-            set var.key, var.value, echo: var.to_s
++          data.env_vars_groups.each do |group|
++            if group.announce?
++              cmd ""echo -e \""\033[33;1mSetting environment variables from #{group.source}\033[0m\""; "", assert: false, echo: false
++            end
++            group.vars.each do |var|
++              set var.key, var.value, echo: var.to_s
++            end
+           end
+           if data.env_vars.any?
+             # adds a newline to the log",won't this also echo Travis vars? maybe it should be something like: `echo: group.announce?`,rb,1,1,1

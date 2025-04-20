@@ -1,0 +1,2929 @@
+patch,msg,lang,relevance,informativeness,expression
+"@@ -231,7 +231,9 @@ abstract class SnapshotProducer<ThisT> implements SnapshotUpdate<ThisT> {
+             Snapshot newSnapshot = apply();
+             newSnapshotId.set(newSnapshot.snapshotId());
+             TableMetadata updated = base.replaceCurrentSnapshot(newSnapshot);
+-            taskOps.commit(base, updated);
++            // if the table UUID is missing, add it here. the UUID will be re-created each time this operation retries
++            // to ensure that if a concurrent operation assigns the UUID, this operation will not fail.
++            taskOps.commit(base, updated.withUUID());
+           });
+ 
+     } catch (RuntimeException e) {","Just to make sure I understand: table UUID isn't supposed to change once assigned and cannot be set back to null, right?",java,1,1,1
+"@@ -67,6 +67,10 @@ public class TextBody implements Body {
+         }
+     }
+ 
++    public String getEncoding() {
++        return encoding;
++    }
++
+     public void setEncoding(String encoding) {
+         mEncoding = encoding;
+     }",Does this code compile? Isn't the member variable `mEncoding`?,java,1,1,1
+"@@ -86,12 +86,11 @@ public class CloudConfigSetService extends ConfigSetService {
+ 
+     // The configSet is read from ZK and populated.  Ignore CD's pre-existing configSet; only populated in standalone
+     final String configSetName;
+-    try {
+-      configSetName = zkController.getZkStateReader().readConfigName(colName);
+-      cd.setConfigSet(configSetName);
+-    } catch (KeeperException ex) {
+-      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR, ""Trouble resolving configSet for collection "" + colName + "": "" + ex.getMessage());
++    configSetName = zkController.getZkStateReader().getClusterState().getCollection(colName).getConfigName();
++    if (configSetName == null) {
++      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, ""configName is missing"");
+     }
++    cd.setConfigSet(configSetName);
+ 
+     return new ZkSolrResourceLoader(cd.getInstanceDir(), configSetName, parentLoader.getClassLoader(), zkController);
+   }","I think we can have getConfigName never return null? That would be ideal, any way.",java,1,1,1
+"@@ -318,7 +318,7 @@ abstract class BaseTableScan implements TableScan {
+     return schema;
+   }
+ 
+-  private static String formatTimestampMillis(long millis) {
++  protected static String formatTimestampMillis(long millis) {
+     return DATE_FORMAT.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), ZoneId.systemDefault()));
+   }
+ }",This isn't used. Could you revert this change?,java,1,1,1
+"@@ -117,6 +117,9 @@ public abstract class Folder<T extends Message> {
+     public void expunge() throws MessagingException
+         {}
+ 
++    public void expungeMessages(List<? extends Message> messages) throws MessagingException {
++    }
++
+     /**
+      * Populate a list of messages based upon a FetchProfile.  See {@link FetchProfile} for the things that can
+      * be fetched.","probably added by accident? \\ edit oh, it's a superclass. derp, nvm.",java,1,0,1
+"@@ -146,6 +146,7 @@ public class AzkabanWebServer extends AzkabanServer implements IMBeanRegistrable
+   private final FlowTriggerScheduler scheduler;
+   private final FlowTriggerService flowTriggerService;
+   private Map<String, TriggerPlugin> triggerPlugins;
++  private final ExecutionLogsCleaner executionLogsCleaner;
+ 
+   @Inject
+   public AzkabanWebServer(final Props props,",Does it matter that we are changing the Ctor signature?,java,1,1,1
+"@@ -121,7 +121,7 @@ public abstract class LoginAbstractAzkabanServlet extends AbstractAzkabanServlet
+ 
+       handleGet(req, resp, session);
+     } else {
+-      if (hasParam(req, ""ajax"")) {
++      if (isAjaxCall(req)) {
+         final HashMap<String, String> retVal = new HashMap<>();
+         retVal.put(""error"", ""session"");
+         this.writeJSON(resp, retVal);","I agree that it's better this way, but this is a breaking change on our api: anyone using our apis outside the website without specifying the header 'X-Requested-With' (not enforced) in POST requests will start getting json instead of html as a response when session expires which can happen often. Api versioning is the way to conduct these type of changes but unfortunately we haven't planned for that yet. I don't know what the impact of this change is but I prefer not to risk it.",java,1,1,0
+"@@ -56,10 +56,10 @@ public class Emailer extends AbstractMailer implements Alerter {
+     this.mailSender = props.getString(""mail.sender"", """");
+     this.tls = props.getString(""mail.tls"", ""false"");
+ 
+-    final int mailTimeout = props.getInt(""mail.timeout.millis"", 10000);
++    final int mailTimeout = props.getInt(""mail.timeout.millis"", 30000);
+     EmailMessage.setTimeout(mailTimeout);
+     final int connectionTimeout =
+-        props.getInt(""mail.connection.timeout.millis"", 10000);
++        props.getInt(""mail.connection.timeout.millis"", 30000);
+     EmailMessage.setConnectionTimeout(connectionTimeout);
+ 
+     EmailMessage.setTotalAttachmentMaxSize(getAttachmentMaxSize());",Does this number matter much? I remember the exception message like `can not connect..`,java,1,1,1
+"@@ -124,7 +124,7 @@ public class DataSourceUtils {
+ 		private MySQLBasicDataSource(String host, int port, String dbName, String user, String password, int numConnections) {
+ 			super();
+ 			
+-			String url = ""jdbc:mysql://"" + (host + "":"" + port + ""/"" + dbName);
++			String url = ""jdbc:mysql://"" + (host + "":"" + port + ""/"" + dbName+""?useUnicode=yes&characterEncoding=UTF-8"");
+ 			setDriverClassName(""com.mysql.jdbc.Driver"");
+ 			setUsername(user);
+ 			setPassword(password);","Please add a space before and after the +, to be consistent with the rest of the file.",java,1,1,1
+"@@ -89,6 +89,7 @@ public abstract class AbstractHadoopSecurityManager extends HadoopSecurityManage
+   protected final ConcurrentMap<String, UserGroupInformation> userUgiMap;
+   protected boolean shouldProxy;
+   protected boolean securityEnabled;
++  protected final Props props;
+   public static final String CHOWN = ""chown"";
+   public static final String CHMOD = ""chmod"";
+ ","Please remind me: why did we decide to put it here and not in ~~either~~ `KSudoHadoopSecurityManager` (bottom of the hierarchy, would not require any changes to OSS Azkaban) ~~*or* `HadoopSecurityManager` (all the way to the top of the class hierarchy)~~? Why is this in the middle?",java,1,1,1
+"@@ -968,6 +968,16 @@ public abstract class AbstractTraversableTest extends AbstractValueTest {
+         assertThat(of(BigDecimal.ZERO, BigDecimal.ONE).max()).isEqualTo(Option.some(BigDecimal.ONE));
+     }
+ 
++    @Test(expected = NullPointerException.class)
++    public void shouldThrowNPEWhenMaxOfNullAndInt() {
++        System.out.println(of(null, 1).max());
++    }
++
++    @Test(expected = NullPointerException.class)
++    public void shouldThrowNPEWhenMaxOfIntAndNull() {
++        System.out.println(of(1, null).max());
++    }
++
+     // -- maxBy(Comparator)
+ 
+     @Test(expected = NullPointerException.class)",I think you can get rid of the `System.out.println`,java,1,1,1
+"@@ -101,10 +101,11 @@ public final class Configuration {
+         PROP_ROOT + PROP_RULE_STRATEGY_NAME);
+   }
+ 
+-  public int getSessionTimeoutInSeconds() {
++  public int getSessionTimeoutInSeconds(String microservice) {
+     final int defaultValue = 30;
+     // do not support MicroService level now
+     String p = getStringProperty(""30"",
++        PROP_ROOT + microservice + ""."" + SESSION_TIMEOUT_IN_SECONDS,
+         PROP_ROOT + SESSION_TIMEOUT_IN_SECONDS);
+     try {
+       return Integer.parseInt(p); // can be negative",this annotation can be deleted.,java,1,1,1
+"@@ -148,8 +148,8 @@ public class DBOpenHelper extends SQLiteOpenHelper {
+ 		dataDir = context.getApplicationInfo().dataDir;
+ 	}
+ 
+-	 protected void loadLibs(Context context) {
+-        SQLiteDatabase.loadLibs(context);
++    protected void loadLibs(Context context) {
++        new SqliteLibraryLoader().loadSqlCipher(context);
+     }
+ 
+ 	@Override",Use `static` call. There's no need to instantiate this util class every time.,java,1,1,1
+"@@ -79,7 +79,7 @@ public interface CheckedFunction1<T1, R> extends λ<R> {
+      * @return a function that applies arguments to the given {@code partialFunction} and returns {@code Some(result)}
+      *         if the function is defined for the given arguments, and {@code None} otherwise.
+      */
+-    static <T1, R> Function1<T1, Option<R>> lift(CheckedFunction1<T1, R> partialFunction) {
++    static <T1, R> Function1<T1, Option<R>> lift(CheckedFunction1<? super T1, R> partialFunction) {
+         return t1 -> Try.of(() -> partialFunction.apply(t1)).getOption();
+     }
+ ","I think we will also need to widen the result type R: `? extends R` for al occurrences (lift, liftTry, recover). Could you also widen the parameters (`? super`for args and `? extends` for return type) for the method `of(...)` of CheckedFunction and Function?",java,1,1,1
+"@@ -42,6 +42,9 @@ public class SparkReadOptions {
+   // Overrides the table's read.split.open-file-cost
+   public static final String FILE_OPEN_COST = ""file-open-cost"";
+ 
++  // Overrides the table's read.split.by-partition
++  public static final String BY_PARTITION = ""by-partition"";
++
+   // Overrides the table's read.split.open-file-cost
+   public static final String VECTORIZATION_ENABLED = ""vectorization-enabled"";
+ ",Is this useful for a user-facing setting? I don't know when a user would want to set this by hand.,java,1,1,1
+"@@ -32,9 +32,9 @@ public final class LinkedHashSet<T> implements Kind1<LinkedHashSet<?>, T>, Set<T
+ 
+     private static final LinkedHashSet<?> EMPTY = new LinkedHashSet<>(LinkedHashMap.empty());
+ 
+-    private final LinkedHashMap<T, T> map;
++    private final LinkedHashMap<T, Object> map;
+ 
+-    private LinkedHashSet(LinkedHashMap<T, T> map) {
++    private LinkedHashSet(LinkedHashMap<T, Object> map) {
+         this.map = map;
+     }
+ ","would `<T, ?>` also work, or just `<T, Object>`?",java,1,1,1
+"@@ -61,11 +61,11 @@ public class TestBodyProcessor {
+   Buffer outputBodyBuffer;
+ 
+   private void createProcessor(Class<?> type) {
+-    processor = new BodyProcessor(TypeFactory.defaultInstance().constructType(type));
++    processor = new BodyProcessor(TypeFactory.defaultInstance().constructType(type), false);
+   }
+ 
+   private void createRawJsonProcessor() {
+-    processor = new RawJsonBodyProcessor(TypeFactory.defaultInstance().constructType(String.class));
++    processor = new RawJsonBodyProcessor(TypeFactory.defaultInstance().constructType(String.class), false);
+   }
+ 
+   private void createClientRequest() {",We must not change a test case if it is required. And here should equivalent to true,java,1,1,1
+"@@ -97,6 +97,8 @@ public class SparkCatalog extends BaseCatalog {
+     Configuration conf = SparkSession.active().sessionState().newHadoopConf();
+     Map<String, String> optionsMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+     optionsMap.putAll(options);
++    optionsMap.put(""app-id"", SparkSession.active().sparkContext().applicationId());
++    optionsMap.put(""user"", SparkSession.active().sparkContext().sparkUser());
+     return CatalogUtil.buildIcebergCatalog(name, optionsMap, conf);
+   }
+ ",Should these keys be defined in `CatalogProperties`?,java,1,1,1
+"@@ -72,7 +72,7 @@ public class ImageTypeDaoImpl implements ImageTypeDao {
+       // insert image type record
+       // Passing timestamp from the code base and can be formatted accordingly based on timezone
+       final Timestamp currentTimestamp = Timestamp.valueOf(LocalDateTime.now());
+-      transOperator.update(INSERT_IMAGE_TYPE, imageType.getName().toLowerCase(),
++      transOperator.update(INSERT_IMAGE_TYPE, imageType.getName(),
+           imageType.getDescription(), true, imageType.getDeployable().getName(),
+           imageType.getCreatedBy(), currentTimestamp, imageType.getModifiedBy(), currentTimestamp);
+       final int imageTypeId = Long.valueOf(transOperator.getLastInsertId()).intValue();","Looks like imageType.getName().toLowerCase() is removed. lowercase is added so that all the image types stored will be in lowercase and the same convention is followed throughout. I think hadoopJava might be causing problem. May be we can keep the original job types name as is, but while processing or passing across different part of the codebase we can use lowercase. Else someone is passing as HadoopJava instead of hadoopJava then then it will not be able to find in the database. So we can follow lowercase lookup and processing to avoid these kind of issues. So while comparing we can do lowercase comparison and we can store in database as is. In that case lowercase removal is fine. I have done changes regarding this and it will be part of the new PR. So no need to change anything here.",java,1,1,0
+"@@ -102,12 +102,9 @@ public class LizardmenShamanPlugin extends Plugin
+ 	@Subscribe
+ 	public void onChatMessage(ChatMessage event)
+ 	{
+-		if (this.notifyOnSpawn)
++		if (this.notifyOnSpawn && event.getMessage().contains(MESSAGE))
+ 		{
+-			if (event.getMessage().contains(MESSAGE))
+-			{
+-				notifier.notify(MESSAGE);
+-			}
++			notifier.notify(MESSAGE);
+ 		}
+ 	}
+ ","I think checking messagetype as well may be a bit faster, if you do that before checking the message",java,1,1,1
+"@@ -166,8 +166,8 @@ public class TestHiveMetastore {
+         .processor(new TSetIpAddressProcessor<>(handler))
+         .transportFactory(new TTransportFactory())
+         .protocolFactory(new TBinaryProtocol.Factory())
+-        .minWorkerThreads(3)
+-        .maxWorkerThreads(5);
++        .minWorkerThreads(5)
++        .maxWorkerThreads(15);
+ 
+     return new TThreadPoolServer(args);
+   }","I don't think we should change these values for the majority of Hive tests, or at least Hive Metastore tests, because this has helped us track down connection leaks. It sounds like we should change these for HiveRunner tests, where we have less control of the connections. If Hive itself doesn't pool or close connections, then we would need to bump this up. Could you make this configurable so that we can set it for the tests that need it?",java,1,1,1
+"@@ -62,6 +62,9 @@ public class TableProperties {
+   public static final String SPLIT_LOOKBACK = ""read.split.planning-lookback"";
+   public static final int SPLIT_LOOKBACK_DEFAULT = 10;
+ 
++  public static final String SPLIT_MIN_FILE_WEIGHT = ""read.split.min-file-weight"";
++  public static final long SPLIT_MIN_FILE_WEIGHT_DEFAULT = 4 * 1024 * 1024; // 4MB
++
+   public static final String OBJECT_STORE_ENABLED = ""write.object-storage.enabled"";
+   public static final boolean OBJECT_STORE_ENABLED_DEFAULT = false;
+ ","Weight is called ""size"" in `read.split.target-size`, so I think we should make this similar. How about `read.split.min-size`?",java,1,1,1
+"@@ -24,8 +24,8 @@ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
+ import java.util.Locale;
+-import java.util.Map;
+ import java.util.Map.Entry;
++import java.util.function.Supplier;
+ import java.util.stream.Collectors;
+ 
+ import org.apache.solr.client.solrj.io.comp.ComparatorOrder;","Why the use of the Supplier? Is this a cosmetic change or is there some functionality here that I'm not seeing? I'm not against a cosmetic change but changes to StreamFactory are going to slow down landing this patch quite a bit because it's such an important class for Streaming Expressions. So if it's purely cosmetic and we want to land the other changes faster, let's do this in another ticket.",java,1,1,1
+"@@ -153,7 +153,7 @@ public class HomeFragment extends NavigationBaseFragment implements CustomTabAct
+         super.onResume();
+ 
+         int productCount = sp.getInt(""productCount"", 0);
+-        apiClient.getTotalProductCount()
++        apiClient.getTotalProductCount(getString(R.string.app_name) + "" "" + Utils.getUserAgent(""OTHERS""))
+             .subscribeOn(Schedulers.io())
+             .observeOn(AndroidSchedulers.mainThread())
+             .subscribe(new SingleObserver<Search>() {","We should use a common way to build the header. For instance in openfoodfacts.github.scrachx.openfood.network.OpenFoodAPIService#getProductByBarcodeSingle we use only this info: `client.getProductByBarcodeSingle(product.getCode(), fields, Utils.getUserAgent(Utils.HEADER_USER_AGENT_SEARCH))` I suggest to remove `getString(R.string.app_name) + "" ""` and change Utils.getUserAgent to add a prefix if needed.",java,1,1,0
+"@@ -30,7 +30,7 @@ import org.junit.Test;
+ public class PacketTest {
+ 
+   private static final String VALID_PONG_PACKET =
+-      ""53cec0d27af44bdc0471d34c4eb631f74b502df7b5513a80a054f0d619f0417d6ba4fd4d6fb83994b95c6d0ae8b175b068a6bffc397e2b408e797069b9370ce47b153dd884b60108e686546a775ed5f85e71059a9c5791e266bd949d0dcfba380102f83bcb84b4b57a1a82040182765fa046896547d3b4259aa1a67bd26e7ec58ab4be650c5552ef0360caf9dae489d53b845b872dc8880000000000000003"";
++      ""3b3d56e4fcdcf714d6c29b0d521e9f4ec0dd50c73c0bbb9b44758a0a7e416ff30a3ea99de3e78a5cff82ad0a0b82030f78c6eff5a1b2a030276277b6e9b6ad7c35db1a6d5f83586a203b4537d82edc6b2820849a485e55aa06cfc680dc63c22d0002f3cb84b4b57a1a82040182765fa046896547d3b4259aa1a67bd26e7ec58ab4be650c5552ef0360caf9dae489d53b8460e5e7b603"";
+   private static final String INVALID_SIGNATURE_PACKET =
+       ""43f91d11b3338b4dbdf16db4f9fa25d7b4e2db81e6fd63f8f6884dfaea851e106f8f692c77169b387bde7c38832cf2d37a9b97b1553d07587ebe251ee21ee36e0ed54fd9218e3feea3bd13ca6982b25c204d5186e7ec5373ea664c91d42467b30102f3cb842f3ee37b82040e82765fa04139782abaccbc8fd290a7fde1ff138943fa9659f7bd67f97c97b09893d1ee8a84607806e108"";
+ ","Hmm, why is the whole packet different? I was expecting it to just be the last bytes.",java,1,1,1
+"@@ -14,4 +14,6 @@
+  */
+ package com.google.api.codegen.viewmodel;
+ 
+-public interface ApiMethodView {}
++public interface ApiMethodView {
++  String name();
++}",we use the `getX()` naming pattern in general - view models are the exception.,java,1,1,1
+"@@ -69,7 +69,8 @@ public class Table {
+ 
+   protected static int __offset(int vtable_offset, int offset, ByteBuffer bb) {
+     int vtable = bb.array().length - offset;
+-    return bb.getShort(vtable + vtable_offset - bb.getInt(vtable)) + vtable;
++    return bb.getShort(vtable + vtable_offset - bb.getShort(vtable)) != 0  ?
++      bb.getShort(vtable + vtable_offset - bb.getShort(vtable)) + vtable : 0;
+   }
+ 
+   /**",Should `bb.array().length` not be `bb.limit()` to be totally correct? Just in case the backing array isn't fully used?,java,1,1,1
+"@@ -275,10 +275,15 @@ public class HiveTableOperations extends BaseMetastoreTableOperations {
+       throw new AlreadyExistsException(""Table already exists: %s.%s"", database, tableName);
+ 
+     } catch (TException | UnknownHostException e) {
+-      if (e.getMessage() != null && e.getMessage().contains(""Table/View 'HIVE_LOCKS' does not exist"")) {
+-        throw new RuntimeException(""Failed to acquire locks from metastore because 'HIVE_LOCKS' doesn't "" +
+-            ""exist, this probably happened when using embedded metastore or doesn't create a "" +
+-            ""transactional meta table. To fix this, use an alternative metastore"", e);
++      if (e.getMessage() != null) {
++        if (e.getMessage().contains(""Table/View 'HIVE_LOCKS' does not exist"")) {
++          throw new RuntimeException(""Failed to acquire locks from metastore because 'HIVE_LOCKS' doesn't "" +
++              ""exist, this probably happened when using embedded metastore or doesn't create a "" +
++              ""transactional meta table. To fix this, use an alternative metastore"", e);
++        } else if (e.getMessage().contains(""java.net.SocketTimeoutException: Read timed out"")) {
++          commitStatus = CommitStatus.UNKNOWN;
++          throw new CommitStateUnknownException(e);
++        }
+       }
+ 
+       throw new RuntimeException(String.format(""Metastore operation failed for %s.%s"", database, tableName), e);","Could we just check for the `cause` field instead of the message string? Or we are in a same situation as with the MetaExceptions, where there is only a string available? Thanks, Peter",java,1,1,1
+"@@ -145,9 +145,9 @@ public final class Node<V> {
+       for (Map.Entry<Long, Long> entry : idToParent.entrySet()) {
+         Node<V> node = idToNode.get(entry.getKey());
+         Node<V> parent = idToNode.get(entry.getValue());
+-        if (parent == null && rootNode == null) { // handle headless trace
+-          rootNode = node;
+-        } else if (parent == null) { // attribute missing parents to root
++        if (parent == null) { // handle headless trace
++          if (rootNode == null)
++            rootNode = new Node<>();
+           rootNode.addChild(node);
+         } else {
+           parent.addChild(node);","rootNode = Node.MISSING_ROOT ^^ something like this makes the code more obvious, plus you can search references for Node.MISSING_ROOT, where you can't search references for null",java,1,1,1
+"@@ -0,0 +1,11 @@
++package com.fsck.k9;
++
++
++public class SputnikTest {
++    public   void sputnikTest(){
++        int x= 2+1;
++
++
++        return;
++    }
++}",[Checkstyle] ERROR: '{' is not preceded with whitespace.,java,1,1,1
+"@@ -40,6 +40,7 @@ public class WebSocketConfiguration {
+   private String authenticationCredentialsFile;
+   private List<String> hostsAllowlist = Arrays.asList(""localhost"", ""127.0.0.1"");
+   private File authenticationPublicKeyFile;
++  private String authenticationAlgorithm = ""RS256"";
+   private long timeoutSec;
+   private int maxActiveConnections;
+ ",again can we use the JwtAlgorithm type for this,java,1,1,1
+"@@ -140,6 +140,19 @@ public class TestTableUpdatePartitionSpec extends TableTestBase {
+ 
+     Assert.assertEquals(""should match evolved spec"", evolvedSpec, table.spec());
+     Assert.assertEquals(1002, table.spec().lastAssignedFieldId());
++
++    table.updateSpec()
++        .renameField(""id_bucket_8"", ""id_partition"")
++        .commit();
++
++    evolvedSpec = PartitionSpec.builderFor(table.schema())
++        .withSpecId(3)
++        .bucket(""data"", 16, ""data_bucket"")
++        .bucket(""id"", 8, ""id_partition"")
++        .truncate(""id"", 4, ""id_trunc_4"")
++        .build();
++    Assert.assertEquals(""should match evolved spec"", evolvedSpec, table.spec());
++    Assert.assertEquals(1002, table.spec().lastAssignedFieldId());
+   }
+ 
+   @Test",This seems like it should be its own test case. Could you move it?,java,1,1,1
+"@@ -28,8 +28,7 @@ public class InstrumentedHttpClients {
+                                            HttpClientMetricNameStrategy metricNameStrategy) {
+         return HttpClientBuilder.create()
+                 .setRequestExecutor(new InstrumentedHttpRequestExecutor(metricRegistry, metricNameStrategy))
+-                .setConnectionManager(new InstrumentedHttpClientConnectionManager(metricRegistry));
++                .setConnectionManager(InstrumentedHttpClientConnectionManager.builder(metricRegistry).build());
+     }
+ 
+-
+ }","This change doesn't seem to be very useful, at the end we invoke the same constructor anyway...",java,1,1,1
+"@@ -74,12 +74,12 @@ public class BeanMembersShouldSerializeRule extends AbstractJavaRule {
+ 
+         Map<VariableNameDeclaration, List<NameOccurrence>> vars = node.getScope()
+                 .getDeclarations(VariableNameDeclaration.class);
+-        for (VariableNameDeclaration decl : vars.keySet()) {
+-            AccessNode accessNodeParent = decl.getAccessNodeParent();
+-            if (vars.get(decl).isEmpty() || accessNodeParent.isTransient() || accessNodeParent.isStatic()) {
++        for (Map.Entry<VariableNameDeclaration, List<NameOccurrence>> entry : vars.entrySet()) {
++            AccessNode accessNodeParent = entry.getKey().getAccessNodeParent();
++            if (entry.getValue().isEmpty() || accessNodeParent.isTransient() || accessNodeParent.isStatic()) {
+                 continue;
+             }
+-            String varName = trimIfPrefix(decl.getImage());
++            String varName = trimIfPrefix(entry.getKey().getImage());
+             varName = varName.substring(0, 1).toUpperCase() + varName.substring(1, varName.length());
+             boolean hasGetMethod = Arrays.binarySearch(methNameArray, ""get"" + varName) >= 0
+                     || Arrays.binarySearch(methNameArray, ""is"" + varName) >= 0;",I'd add a `VariableNameDeclaration decl = entry.getKey();` here for readability,java,1,1,1
+"@@ -88,7 +88,6 @@ public class LoginActivity extends AccountAuthenticatorActivity implements OAuth
+ 
+ 		// Setup the WebView.
+ 		WebView webView = (WebView) findViewById(salesforceR.idLoginWebView());
+-		webView.getSettings().setSavePassword(false);
+ 		EventsObservable.get().notifyEvent(EventType.AuthWebViewCreateComplete, webView);
+ 		webviewHelper = getOAuthWebviewHelper(this, loginOptions, webView, savedInstanceState);
+ 		","The ability to save passwords in the `WebView` has been taken away, so this method does nothing anymore.",java,1,1,1
+"@@ -35,6 +35,7 @@ import org.apache.lucene.util.fst.IntsRefFSTEnum;
+ 
+ import static org.apache.lucene.analysis.ja.dict.BinaryDictionary.ResourceScheme;
+ 
++//nocommit
+ /**
+  * Tests of TokenInfoDictionary build tools; run using ant test-tools
+  */","""test-tools"" shouldn't be a task. I don't know what it was doing but it should be a regular test, perhaps grouped under a test group (and enabled by a property).",java,1,1,1
+"@@ -52,7 +52,7 @@ public class ValidationServiceClient {
+       template.postForObject(urlPrefix + ""/validate"", model, ValidationModel.class);
+       TestMgr.check(false, true);
+     } catch (InvocationException e) {
+-      TestMgr.check(e.getErrorData().toString().contains(""age""), true);
++      TestMgr.check(e.getErrorData().toString().contains(""propertyPath=errorCode.request.age""), true);
+     }
+ 
+     try {",It's better to add error code check.,java,1,1,1
+"@@ -298,6 +298,9 @@ class RustGenerator : public BaseGenerator {
+ 
+     assert(!cur_name_space_);
+ 
++    // Generate global namespace imports.
++    GenNamespaceImports();
++
+     // Generate all code in their namespaces, once, because Rust does not
+     // permit re-opening modules.
+     //","Please describe why we do this twice, for future maintainers.",java,1,1,1
+"@@ -60,10 +60,10 @@ public final class PMDCommandLineInterface {
+     public static String buildUsageText(JCommander jcommander) {
+         StringBuilder usage = new StringBuilder();
+ 
+-        String allCommandsDescription = null;
++        StringBuilder allCommandsDescription = null;
+         if (jcommander != null && jcommander.getCommands() != null) {
+             for (String command : jcommander.getCommands().keySet()) {
+-                allCommandsDescription += jcommander.getCommandDescription(command) + PMD.EOL;
++                allCommandsDescription.append(jcommander.getCommandDescription(command)).append(PMD.EOL);
+             }
+         }
+ ",@XenoAmess This introduces a NPE.,java,0,1,1
+"@@ -61,6 +61,9 @@ public abstract class StaticLangApiView {
+ 
+   public abstract boolean hasLongRunningOperations();
+ 
++  @Nullable // Used in Java
++  public abstract String stubInterfaceName();
++
+   public static Builder newBuilder() {
+     return new AutoValue_StaticLangApiView.Builder();
+   }","Nullable feels a little icky. I generally think ""NOT IMPLEMENTED"" string is better. Looks like you'll have to change all LanguageTransformers though... Up to you.",java,1,1,1
+"@@ -221,7 +221,7 @@ public class VRBrowserActivity extends PlatformActivity implements WidgetManager
+     void loadFromIntent(final Intent intent) {
+         final Uri uri = intent.getData();
+         if (SessionStore.get().getCurrentSession() == null) {
+-            String url = (uri != null ? uri.toString() : SessionStore.DEFAULT_URL);
++            String url = (uri != null ? uri.toString() : SessionStore.get().getHomeUri());
+             int id = SessionStore.get().createSession();
+             SessionStore.get().setCurrentSession(id);
+             SessionStore.get().loadUri(url);",I thought about just changing `SessionStore#loadUri` to accept a null `uri` and keeping the conditional logic in that method. would make things a tad more DRY. thoughts?,java,1,1,1
+"@@ -112,9 +112,9 @@ public class BlockJoinSelector {
+    *  one value per parent among its {@code children} using the configured
+    *  {@code selection} type. */
+   public static SortedDocValues wrap(final SortedDocValues values, Type selection, BitSet parents, DocIdSetIterator children) {
+-    if (values.docID() != -1) {
+-      throw new IllegalArgumentException(""values iterator was already consumed: values.docID="" + values.docID());
+-    }
++    //if (values.docID() != -1) {
++    //  throw new IllegalArgumentException(""values iterator was already consumed: values.docID="" + values.docID());
++    //}
+     return ToParentDocValues.wrap(values, selection, parents, children);
+   }
+ ","Would be discussed later, if all other issues resolved.",java,1,0,1
+"@@ -1115,6 +1115,19 @@ public class Crypto {
+         return extractX509CertSubjectField(x509Cert, BCStyle.O);
+     }
+ 
++    public static boolean isRestrictedCertificate(X509Certificate x509Cert, GlobStringsMatcher globStringsMatcher) {
++        if (globStringsMatcher == null) {
++            LOG.error(""isRestrictedCertificate: Required argument globStringsMatcher is null. Returning true."");
++            return true;
++        }
++        if (x509Cert == null) {
++            LOG.error(""isRestrictedCertificate: Required argument x509Cert is null. Returning true."");
++            return true;
++        }
++        String x509Ou = extractX509CertSubjectOUField(x509Cert);
++        return globStringsMatcher.isMatch(x509Ou);
++    }
++
+     private static List<String> extractX509CertSANField(X509Certificate x509Cert, int tagNo) {
+         Collection<List<?>> altNames = null;
+         try {","we should optimize the use of this function. If I don't have a restricted set, the code parses and gets the ou field anyway and then just does nothing. before doing this we should check if there are any values in our strings matcher and if it's empty, then return false right away without doing anything.",java,1,1,1
+"@@ -76,7 +76,7 @@ class DeleteFileIndex {
+     ImmutableMap.Builder<Integer, Types.StructType> builder = ImmutableMap.builder();
+     specsById.forEach((specId, spec) -> builder.put(specId, spec.partitionType()));
+     this.partitionTypeById = builder.build();
+-    this.wrapperById = Maps.newHashMap();
++    this.wrapperById = Maps.newConcurrentMap();
+     this.globalSeqs = globalSeqs;
+     this.globalDeletes = globalDeletes;
+     this.sortedDeletesByPartition = sortedDeletesByPartition;","My only question on this PR is whether we should switch to using a Caffeine loading cache here? I just notice in some places we do that, and in others we just use the concurrent map.",java,1,1,1
+"@@ -25,7 +25,7 @@ public interface ValidatorManager {
+    * of {@link ValidationReport} with the key being the validator's name and the value being the
+    * {@link ValidationReport} generated by that validator.
+    */
+-  Map<String, ValidationReport> validate(Project project, File projectDir);
++  Map<String, ValidationReport> validate(Project project, File projectDir, String azkabanFlowVersion);
+ 
+   /**
+    * The ValidatorManager should have a default validator which checks for the most essential",How do you plan to discover and update all the users of this interface?,java,1,1,1
+"@@ -324,7 +324,7 @@ class SimpleClusterAbstractionsImpl {
+       return new Pair<>(replicas, leader);
+     }
+ 
+-    private ReplicaImpl(String replicaName, Shard shard, org.apache.solr.common.cloud.Replica sliceReplica) {
++    ReplicaImpl(String replicaName, Shard shard, org.apache.solr.common.cloud.Replica sliceReplica) {
+       this.replicaName = replicaName;
+       this.coreName = sliceReplica.getCoreName();
+       this.shard = shard;",Why are these no longer `private`?,java,1,1,1
+"@@ -78,6 +78,13 @@ public class BftBlockHashing {
+             bftExtraDataCodec));
+   }
+ 
++  public Hash calculateHashOfBftBlockForCmsSignature(final BlockHeader header) {
++    final BftExtraData bftExtraData = bftExtraDataCodec.decode(header);
++    return Hash.hash(
++        serializeHeader(
++            header, () -> bftExtraDataCodec.encodeForProposal(bftExtraData), bftExtraDataCodec));
++  }
++
+   /**
+    * Recovers the {@link Address} for each validator that contributed a committed seal to the block.
+    *","Don't think this belongs on the generic BftBlockHashing class, this is quite to specific to the QBFT PKI implementation",java,1,1,1
+"@@ -65,6 +65,7 @@ public abstract class BaseRewriteDataFilesAction<ThisT>
+   private Expression filter;
+   private long targetSizeInBytes;
+   private int splitLookback;
++  private int itemsPerBin;
+   private long splitOpenFileCost;
+ 
+   protected BaseRewriteDataFilesAction(Table table) {",Looks like this is only modifying the old rewrite path and not the new path. We should probably fix it in both places,java,1,1,1
+"@@ -1,5 +1,4 @@
+ import { enqueueRender } from './component';
+-
+ export let i = 0;
+ 
+ /**","Nit: It may be just me, but I feel like having at least one empty line after imports is easier to scan.",js,1,1,1
+"@@ -1577,7 +1577,7 @@ describe('Insert', function () {
+         var collection = db.collection('bson_types_insert_1');
+ 
+         var document = {
+-          symbol: new BSONSymbol('abcdefghijkl'),
++          string: 'abcdefghijkl',
+           objid: new ObjectId('abcdefghijkl'),
+           double: new Double(1),
+           binary: new Binary(Buffer.from('hello world')),",BSONExt supports deserializing but not serializing this type (which is acceptable for deprecated types). So to make the bson-ext tests pass I've updated this to a string.,js,1,1,1
+"@@ -139,7 +139,9 @@ var Cursor = function(bson, ns, cmd, options, topology, topologyOptions) {
+     // Promise library
+     promiseLibrary: promiseLibrary,
+     // Current doc
+-    currentDoc: null
++    currentDoc: null,
++    // Optional ClientSession
++    session: options.session || null
+   };
+ 
+   // Translate correctly","Do we specifically need `null` here, or can we just let it be `undefined`?",js,1,1,1
+"@@ -1654,9 +1654,10 @@ class TargetLocator {
+    *     when the driver has changed focus to the specified window.
+    */
+   window(nameOrHandle) {
++    let paramName = this.driver_.getExecutor().w3c ? 'handle' : 'name';
+     return this.driver_.schedule(
+         new command.Command(command.Name.SWITCH_TO_WINDOW).
+-            setParameter('name', nameOrHandle),
++            setParameter(paramName, nameOrHandle),
+         'WebDriver.switchTo().window(' + nameOrHandle + ')');
+   }
+ ",I'd rather just send the parameter twice than break encapsulation here. There's already precedence with webelement IDs,js,1,1,1
+"@@ -43,6 +43,11 @@ color.propTypes = {
+   ...bgColor.propTypes,
+ }
+ 
++export const opacity = responsiveStyle({
++  prop: 'opacity',
++  alias: 'o',
++})
++
+ // typography
+ export const fontFamily = style({
+   prop: 'fontFamily',","I think the shorthand should be removed; the existing shorthands are mostly meant for backwards compatibility, and I can't imagine `opacity` being used nearly enough to warrant a new shorthand",js,1,1,1
+"@@ -51,8 +51,11 @@
+       };
+     }
+ 
++    // IE 10 doesn’t support console.debug
++    var consoleDebug = console.debug || console.log
++
+     console.log = customLog(console.log.bind(console), document.getElementById(""console-log""));
+-    console.debug = customLog(console.log.bind(console), document.getElementById(""console-log""));
++    console.debug = customLog(consoleDebug.bind(console), document.getElementById(""console-log""));
+     console.warn = customLog(console.warn.bind(console), document.getElementById(""console-log""));
+     console.error = customLog(console.error.bind(console), document.getElementById(""console-log""));
+   </script>","I guess we don't need `console.log =` here then, because `.debug` calls `.log` when needed? But it's a minor detail, it's not hurting anything.",js,1,1,1
+"@@ -55,6 +55,10 @@ var serverAccounting = false;
+ var servers = {};
+ var BSON = retrieveBSON();
+ 
++function topologyId(server) {
++  return server.s.parent == null ? server.id : server.s.parent.id;
++}
++
+ /**
+  * Creates a new Server instance
+  * @class","is there ever a chance that `server.s` is null? Mu guess is no, but idk.",js,1,1,0
+"@@ -32,7 +32,7 @@ const getFixer = () => {
+  * The function `buildDependencyGetter` is the best place to care about that.
+  *
+  * @param {string} version The current selected documentation version.
+- * @returns {function({dependency:string}):[string,string[],string]} [jsUrl, dependentVars[]?, cssUrl?].
++ * @returns {Function}
+  */
+ const buildDependencyGetter = (version) => {
+   const { handsontableJs, handsontableCss, languagesJs } = getHotUrls(version);",Why this was changes? AFAIK it was correct,js,1,0,1
+"@@ -52,10 +52,12 @@ function DashboardClicksWidget() {
+ 		const isDomainProperty = select( STORE_NAME ).isDomainProperty();
+ 		const referenceSiteURL = untrailingslashit( select( CORE_SITE ).getReferenceSiteURL() );
+ 
++		const dateRange = select( CORE_USER ).getDateRangeDates( { compare: true, offsetDays: 1 } );
+ 		const args = {
+ 			dimensions: 'date',
+-			compareDateRanges: true,
+-			dateRange: select( CORE_USER ).getDateRange(),
++			// Combine both date ranges into one single date range.
++			startDate: dateRange.compareStartDate,
++			endDate: dateRange.endDate,
+ 		};
+ 		const serviceBaseURLArgs = {
+ 			resource_id: propertyID,","Can you add a `DATE_RANGE_OFFSET` constant to `assets/js/modules/search-console/datastore/constants.js` and use that in all these locations? This way we put the offset for this module in one place, similarly how it was done for AdSense and Analytics in #2459.",js,0,1,1
+"@@ -45,7 +45,10 @@ describe('Operation (Promises)', function() {
+         var db = client.db(configuration.db);
+         // LINE var MongoClient = require('mongodb').MongoClient,
+         // LINE   test = require('assert');
+-        // LINE MongoClient.connect('mongodb://localhost:27017/test', function(err, client) {
++        // LINE const client = new MongoClient('mongodb://localhost:27017/test');
++        // LINE client.connect().then(() => {
++        // LINE const client = new MongoClient('mongodb://localhost:27017/test');
++        // LINE client.connect().then(() => {
+         // LINE   var db = client.db('test);
+         // REPLACE configuration.writeConcernMax() WITH {w:1}
+         // REMOVE-LINE done();",do you also need this repeated here?,js,1,0,1
+"@@ -231,3 +231,6 @@ export UtilityIcon from './utilities/utility-icon';
+ 
+ export SLDSTree from './tree';
+ export Tree from './tree';
++
++// Library utilities
++export log from '../utilities/log';",what is this export used for?,js,1,1,1
+"@@ -1,2 +1,3 @@
+ var parent = axe.commons.dom.getComposedParent(node);
+-return parent.nodeName.toUpperCase() === 'DL';
++return parent.nodeName.toUpperCase() === 'DL' && !parent.getAttribute('role');
++","Should this allow `<dl role=""list"">`?",js,1,1,1
+"@@ -0,0 +1,12 @@
++/**
++ * Restores var names transformed by babel's let block scoping
++ */
++export default (file, api) => {
++	let j = api.jscodeshift;
++	let code = j(file.source);
++
++	code.findVariableDeclarators().filter(d => /^_i/.test(d.value.id.name)).renameTo('i');
++	code.findVariableDeclarators('_key').renameTo('key');
++
++	return code.toSource({ quote: 'single' });
++};","Slight chance this might collide with other variables, right? It's okay if it does, just wasn't sure if it was doing scope analysis to avoid it.",js,1,1,1
+"@@ -95,7 +95,7 @@ class Uppy {
+       meta: Object.assign({}, this.opts.meta),
+       info: {
+         isHidden: true,
+-        type: '',
++        type: 'info',
+         msg: ''
+       }
+     }",This property name was changed to `message` further down but not here,js,1,1,1
+"@@ -1122,6 +1122,7 @@ define([""playbackManager"", ""dom"", ""inputManager"", ""datetime"", ""itemHelper"", ""med
+                     }
+                     break;
+                 case ""k"":
++                case ""Space"":
+                     playbackManager.playPause(currentPlayer);
+                     showOsd();
+                     break;","Not directly related to this PR, but why is this K instead of something sensible like P ? (I get that JKL are homerow, next to each other and all, but for discovery by most users, K makes no sense)",js,0,1,1
+"@@ -1,3 +1,5 @@
++export const root = typeof window === 'undefined' ? global : window;
++
+ /** Copy own-properties from `props` onto `obj`.
+  *	@returns obj
+  *	@private","I was getting ""window is undefined"" errors. I couldn't see a convention around this in the source, though.",js,1,1,1
+"@@ -415,7 +415,7 @@ exports[""should correctly connect to mongodb using domain socket""] = {
+   // The actual test we wish to run
+   test: function(configuration, test) {
+     var MongoClient = configuration.require.MongoClient;
+-    MongoClient.connect('mongodb:///tmp/mongodb-27017.sock/test', function(err, client) {
++    MongoClient.connect('mongodb://%2Ftmp%2Fmongodb-27017.sock/test', function(err, client) {
+       test.equal(null, err);
+       test.done();
+     });","what's going on here? I don't think its correct that we require users to escape their own local domain socket paths, are you saying it doesn't pass the connection string tests to do so? We might need to file a spec ticket against that then",js,1,1,1
+"@@ -154,7 +154,7 @@ module.exports = class Tus extends Plugin {
+       }
+ 
+       optsTus.onSuccess = () => {
+-        this.uppy.emit('upload-success', file, upload, upload.url)
++        this.uppy.emit('upload-success', file, null, upload.url)
+ 
+         if (upload.url) {
+           this.uppy.log('Download ' + upload.file.name + ' from ' + upload.url)",we can drop the upload.urls here and instead pass an object that contains the `uploadURL` like in xhrupload,js,1,1,1
+"@@ -86,7 +86,7 @@ Mongoose.prototype.STATES = STATES;
+  * Currently supported options are:
+  * - 'debug': prints the operations mongoose sends to MongoDB to the console
+  * - 'bufferCommands': enable/disable mongoose's buffering mechanism for all connections and models
+- * - 'useFindAndModify': true by default. Set to `false` to make `findOneAndUpdate()` and `findOneAndRemove()` use native `findOneAndUpdate()` rather than `findAndModify()`.
++ * - 'useFindAndModify': false by default. Set to `true` to make `findOneAndUpdate()` and `findOneAndRemove()` use legacy `findAndModify()` rather than native methods`.
+  * - 'cloneSchemas': false by default. Set to `true` to `clone()` all schemas before compiling into a model.
+  * - 'applyPluginsToDiscriminators': false by default. Set to true to apply global plugins to discriminator schemas. This typically isn't necessary because plugins are applied to the base schema and discriminators copy all middleware, methods, statics, and properties from the base schema.
+  * - 'objectIdGetter': true by default. Mongoose adds a getter to MongoDB ObjectId's called `_id` that returns `this` for convenience with populate. Set this to false to remove the getter.","I'm wary of changing `useFindAndModify` to false by default in a minor release, especially in light of the issue with `overwrite: true` that you found. I was not aware of that difference, which makes me wonder if there are other compatibility concerns that we're missing.",js,1,1,1
+"@@ -22,6 +22,7 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+ 
+ 
+ class Options(object):
++    KEY = ""goog:chromeOptions""
+ 
+     def __init__(self):
+         self._binary_location = ''",nice touch since Google likes to change things every now and then.,js,1,0,1
+"@@ -90,10 +90,11 @@ export const createInfoStore = ( slug, {
+                                 return undefined;
+                         }
+ 
+-                        const noSetupQueryArgs = ! requiresSetup ? {
+-                                notification: 'authentication_success',
+-                                reAuth: undefined,
+-                        } : {};
++                        const noSetupQueryArgs = {};
++                        if ( ! requiresSetup && reAuth === true ) {
++                                noSetupQueryArgs.notification = 'authentication_success';
++                                noSetupQueryArgs.reAuth = undefined;
++                        }
+ 
+                         const redirectURL = select( storeName ).getAdminScreenURL( { slug, reAuth, ...noSetupQueryArgs } );
+                         if ( redirectURL === undefined ) {","If this fixes something that wasn't working properly, please update `create-info-store.test.js`.",js,1,1,1
+"@@ -1,3 +1,19 @@
++function createContentHidden() {
++	'use strict';
++	var group = document.createElement('div');
++	group.innerHTML = '<label id=""mylabel"">Label</label><input aria-labelledby=""mylabel"" type=""text"" />';
++	return group;
++}
++
++function makeShadowTreeHidden(node) {
++	'use strict';
++	var root = node.attachShadow({mode: 'open'});
++	var div = document.createElement('div');
++	div.className = 'parent';
++	root.appendChild(div);
++	div.appendChild(createContentHidden());
++}
++
+ describe('axe.utils.isHidden', function () {
+ 	'use strict';
+ ","What makes this tree hidden? I don't see any special CSS that would hide it, or a closed mode. I do see `display: none` in the test, perhaps it's just a confusing function name?",js,1,1,1
+"@@ -422,8 +422,7 @@ module.exports = class ProviderView {
+ 
+   handleAuth () {
+     const authState = btoa(JSON.stringify({ origin: getOrigin() }))
+-    // @todo remove this hardcoded version
+-    const clientVersion = encodeURIComponent('@uppy/companion-client=1.0.2')
++    const clientVersion = encodeURIComponent(`@uppy/companion-client=${ProviderView.VERSION}`)
+     const link = `${this.provider.authUrl()}?state=${authState}&uppyVersions=${clientVersion}`
+ 
+     const authWindow = window.open(link, '_blank')",Hmm this should've been `@uppy/provider-views` I guess! Can we still change it now with back compat or will we just have to suck it up? :P,js,1,1,0
+"@@ -198,9 +198,11 @@ export function initDebug() {
+ 	};
+ 
+ 	options.diffed = (vnode) => {
++		if (oldDiffed) oldDiffed(vnode);
++
+ 		if (vnode._component && vnode._component.__hooks) {
+ 			let hooks = vnode._component.__hooks;
+-			hooks._list.forEach(hook => {
++			(hooks._list || []).forEach(hook => {
+ 				if (hook._callback && (!hook._args || !Array.isArray(hook._args))) {
+ 					/* istanbul ignore next */
+ 					console.warn(",Moving this up top ensures the call for the older one first.,js,1,1,1
+"@@ -142,6 +142,7 @@ module.exports = class DragDrop extends Plugin {
+     const restrictions = this.uppy.opts.restrictions
+     return (
+       <input
++        id={'uppy-input-' + this.id}
+         class=""uppy-DragDrop-input""
+         type=""file""
+         tabindex={-1}",we might want to do `this.uppy.id + this.id` in case someone has two instances of uppy with drag-drop,js,1,1,1
+"@@ -201,7 +201,7 @@ TransactionBuilder.prototype._setInputMap = function() {
+     var scriptType = scriptPubKey.classify();
+ 
+     if (scriptType === Script.TX_UNKNOWN)
+-      throw new Error('unkown output type at:' + i +
++      throw new Error('Unknown script pubkey type at:' + i +
+         ' Type:' + scriptPubKey.getRawOutType());
+ 
+     inputMap.push({","I would say 'Unknown scriptPubKey', which is not the same as 'Unkown script pubkey'",js,1,1,1
+"@@ -35,6 +35,8 @@ import { createElement, Fragment } from '@wordpress/element';
+  *
+  * @param {Component} NewComponent The new component to append to the filtered component.
+  *
++ * @return {ReactElement} Filtered component with appended component.
++ *
+  */
+ export const createAddToFilter = ( NewComponent ) => {
+ 	return ( OriginalComponent ) => {","I believe we should be using `WPElement` instead since React is essentially provided through we're using `@wordpress/element`, but I'm not 100% sure about that now that we're using our own bundles. @tofumatt ?",js,1,1,1
+"@@ -315,7 +315,17 @@ function diffAttributes(dom, attrs, old) {
+ 	// add new & update changed attributes
+ 	if (attrs) {
+ 		for (let name in attrs) {
+-			if (name!=='children' && name!=='innerHTML' && (!(name in old) || attrs[name]!==(name==='value' || name==='checked' ? dom[name] : old[name]))) {
++			if (
++				name!=='children' &&  // break if attributeName is children
++				name!=='innerHTML' &&  // break if attributeName is innerHTML
++				(
++					( name=== 'dangerouslySetInnerHTML' ) || // continue if attributeName is dangerouslySetInnerHTML
++					(
++						!(name in old) ||  // continue if attr doesn't exists
++						attrs[name] !== (name==='value' || name==='checked' ? dom[name] : old[name]) // continue if attr is different
++					)
++				)
++			) {
+ 				setAccessor(dom, name, old[name], old[name] = attrs[name], isSvgMode);
+ 			}
+ 		}",This line is the essence of PR #454,js,0,1,1
+"@@ -372,7 +372,7 @@ define([""dom"", ""browser"", ""layoutManager""], function (dom, browser, layoutManage
+      */
+     function useSmoothScroll() {
+ 
+-        if (browser.tizen) {
++        if (browser.tizen || browser.web0s || browser.firefox || browser.chrome) {
+             return true;
+         }
+ ","I know lots of people don't like smooth scroll, so we can't just enable it everywhere by default.",js,1,1,1
+"@@ -455,6 +455,9 @@ class Realm {
+  *   This is not supported for `""list""` properties of object types and `""linkingObjects""` properties.
+  * @property {boolean} [indexed] - Signals if this property should be indexed. Only supported for
+  *   `""string""`, `""int""`, and `""bool""` properties.
++ * @property {string} [alias] - an alias in JavaScript for the underlying name in the Realm file. If set, this must be
++ *   used when reading/writing the property or making queries against it. Trying to use the internal name will throw
++ *   an exception.
+  */
+ 
+ /**","""internal name"" might be a little unclear here. Maybe ""underlying name"" is better.",js,1,1,1
+"@@ -271,6 +271,10 @@ class Connection extends EventEmitter {
+ 
+       // Iterate over all buffers and write them in order to the socket
+       for (let i = 0; i < buffer.length; i++) {
++        this.socket.on('error', function(){
++          console.log(""CLIENT HAS ERRORED"");
++          break;
++        });
+         this.socket.write(buffer[i], 'binary');
+       }
+ ",This will add an error listener per buffer in the BufferList passed to write and the break on line 276 won't have an effect on the synchronous for loop as the socket can emit the error event at a time later than when the loop is run.,js,1,1,1
+"@@ -230,6 +230,7 @@ const defaultReplacements = [
+   [/Chrome/g, 'Brave'],
+   [/Google LLC. All rights reserved./g, 'The Brave Authors. All rights reserved.'],
+   [/Google/g, 'Brave'],
++  [/Brave Safe Browsing/g, 'Google Safe Browsing'],
+   [/You're incognito/g, 'This is a private window'],
+   [/an incognito/g, 'a private'],
+   [/an Incognito/g, 'a Private'],","This could probably be merged with the previous rule using negative-look-ahead, e.g. `Google(?! Safe Browsing?)`. But it could be argued this way is more readable, so I'm ok with it.",js,1,1,1
+"@@ -29,7 +29,17 @@ export function initDebug() {
+ 		let children = props && props.children;
+ 
+ 		if (type===undefined) {
+-			throw new Error('Undefined component passed to createElement()\n'+serializeVNode(vnode));
++			throw new Error('Undefined component passed to createElement()\n\n'+
++			'You likely forgot to export your component or might have mixed up default and named imports'+
++			serializeVNode(vnode));
++		}
++		else if (type!=null && typeof type==='object') {
++			if (type._lastDomChild!==undefined && type._dom!==undefined) {
++				let info = 'Did you accidentilly passed a JSX Literal as JSX twice?';
++				throw new Error('Invalid type passed to createElement(): '+type+'\n\n'+info+'\n\n'+serializeVNode(type));
++			}
++
++			throw new Error('Invalid type passed to createElement(): '+(Array.isArray(type) ? 'array' : type));
+ 		}
+ 
+ 		if (",I think this should be `accidentally`,js,1,1,1
+"@@ -20,10 +20,10 @@
+  * A single module. Keeps track of its own active state and settings.
+  */
+ 
+-function Spinner( { isSaving } ) {
++function Spinner( { isSaving, className } ) {
+ 	return (
+ 		<span
+-			className=""spinner""
++			className={ [ 'spinner', className ].join( ' ' ) }
+ 			style={ {
+ 				display: ( isSaving ? 'inline-block' : 'none' ),
+ 				float: 'none',",Please use the `classnames` package for dynamic class names. We already use it in many places and is our go-to utility for this kind of thing,js,1,1,1
+"@@ -181,7 +181,8 @@ export async function getAdSenseAccountStatus( statusUpdateCallback, existingTag
+ 				for ( let account of accounts ) {
+ 					const accountId = account.id;
+ 					const urlchannels = await data.get( 'modules', 'adsense', 'urlchannels', { clientId: accountId } ).then( res => res ).catch( e => e );
+-					const matches = urlchannels && urlchannels.length ? filter( urlchannels, { urlPattern: googlesitekit.admin.siteURL } ) : [];
++					const parsedUrl = new URL( googlesitekit.admin.siteURL );
++					const matches = urlchannels && urlchannels.length ? filter( urlchannels, { urlPattern: parsedUrl.hostname } ) : [];
+ 
+ 					if ( 0 === matches.length ) {
+ 						accountStatus  = 'account-pending-review';",Can you provide more background on this change?,js,1,0,1
+"@@ -0,0 +1,12 @@
++import memory from 'rollup-plugin-memory';
++import rollupConfig from './rollup.config';
++
++export default Object.assign({}, rollupConfig, {
++	plugins: [
++		memory({
++			path: 'src/preact',
++			contents: `import { h } from './preact';export * from './preact';export { h as createElement };`
++		}),
++		...rollupConfig.plugins.slice(1)
++	]
++});","Wondering if it's worth pulling this into a file (`src/aliases.js`?) for visibility. Or if there's anything else we might add in the future, it'd be easier in a file. Thoughts?",js,1,1,1
+"@@ -29,7 +29,13 @@
+ 
+ 	var fixture = document.getElementById('fixture');
+ 	Object.keys(tests).forEach(function(ruleId) {
+-		describe(ruleId, function() {
++		// don't run deprecated rules
++		var rule = axe._audit.rules.find(function(rule) {
++			return rule.id === ruleId;
++		});
++		var deprecated = rule.tags.indexOf('deprecated') !== -1;
++
++		(deprecated ? describe.skip : describe)(ruleId, function() {
+ 			tests[ruleId].forEach(function(test) {
+ 				var testName = test.description || ruleId + ' test';
+ 				describe(testName, function() {","If `rules.find()` somehow doesn't match, this will throw, since `rule` will be `undefined`. Do we want to guard against this?",js,1,1,1
+"@@ -53,6 +53,10 @@ export default function UserInputKeywords( { slug, max } ) {
+ 		values.push( '' );
+ 	}
+ 
++	// Store values in local state to prevent
++	// https://github.com/google/site-kit-wp/issues/2900#issuecomment-814843972.
++	const [ localValues, setLocalValues ] = useState( [ '' ] );
++
+ 	// Need to make sure that dependencies list always has the same number of elements.
+ 	const dependencies = values.concat( Array( max ) ).slice( 0, max );
+ ",Shouldn't the initial state be `values`?,js,1,1,1
+"@@ -41,7 +41,11 @@ function getAttributeNameValue(node, at) {
+ 				return;
+ 			}
+ 		} else {
+-			atnv = escapeSelector(at.name) + '=""' + node.getAttribute(name) + '""';
++			atnv =
++				escapeSelector(at.name) +
++				'=""' +
++				escapeSelector(node.getAttribute(name)) +
++				'""';
+ 		}
+ 	} else {
+ 		atnv = escapeSelector(name) + '=""' + escapeSelector(at.value) + '""';","At L39 above, is it worth doing `escapeSelector(value)` as well?",js,1,1,1
+"@@ -51,12 +51,15 @@ export default function SetupFormGA4Transitional() {
+ 	const propertyID = useSelect( ( select ) => select( STORE_NAME ).getPropertyID() );
+ 	const profileID = useSelect( ( select ) => select( STORE_NAME ).getProfileID() );
+ 
++	const ga4PropertyID = useSelect( ( select ) => select( MODULES_ANALYTICS_4 ).getPropertyID() );
+ 	const ga4ExistingTag = useSelect( ( select ) => select( MODULES_ANALYTICS_4 ).getExistingTag() );
+ 	const ga4MeasurementID = useSelect( ( select ) => select( MODULES_ANALYTICS_4 ).getMeasurementID() );
+ 
+ 	const { setUseSnippet: uaSetUseSnippet } = useDispatch( STORE_NAME );
+ 	const { setUseSnippet: ga4SetUseSnippet } = useDispatch( MODULES_ANALYTICS_4 );
+ 
++	const shouldShowAssociatedPropertyNotice = propertyID || ga4PropertyID;
++
+ 	useEffect( () => {
+ 		uaSetUseSnippet( existingTag !== propertyID );
+ 		ga4SetUseSnippet( ga4ExistingTag !== ga4MeasurementID );","See above, let's make this consistent with the other two scenarios: `accountID && accountID !== ACCOUNT_CREATE && ( propertyID || ga4PropertyID )`",js,1,1,1
+"@@ -237,6 +237,8 @@ class WebDriver(RemoteWebDriver):
+         Returns identifier of installed addon. This identifier can later
+         be used to uninstall addon.
+ 
++        :param path: Full path to the addon that will be installed.
++
+         :Usage:
+             driver.install_addon('firebug.xpi')
+         """"""",Can you update the `Usage` to be an absolute path as well? Something like `/path/to/firebug.xpi`,js,1,1,1
+"@@ -12,6 +12,7 @@ function autocompleteAppropriateEvaluate(node, options, virtualNode) {
+   const allowedTypesMap = {
+     bday: ['text', 'search', 'date'],
+     email: ['text', 'search', 'email'],
++    username: ['email'],
+     'street-address': ['text'], // Issue: https://github.com/dequelabs/axe-core/issues/1161
+     tel: ['text', 'search', 'tel'],
+     'tel-country-code': ['text', 'search', 'tel'],",I believe to fix the test we'll need this to also include `text` and probably `search`. Otherwise it's restricted to just `type=email`.,js,1,1,1
+"@@ -143,8 +143,10 @@ function Cursor(bson, ns, cmd, options, topology, topologyOptions) {
+     promiseLibrary: promiseLibrary,
+     // Current doc
+     currentDoc: null,
++    // expicitlyDoNotUseSession
++    expicitlyDoNotUseSession: options.expicitlyDoNotUseSession,
+     // Optional ClientSession
+-    session: options.session
++    session: options.explicitlyDoNotUseSession ? undefined : options.session
+   };
+ 
+   // Translate correctly",typo: `expicitly` should be `explicitly`,js,1,1,1
+"@@ -34,15 +34,12 @@ define(['apphost', 'userSettings', 'browser', 'events', 'pluginManager', 'backdr
+             id: ""dark"",
+             isDefault: true,
+             isDefaultServerDashboard: true
+-        }, {
+-            name: ""Emby"",
+-            id: ""emby""
+         }, {
+             name: ""Light"",
+             id: ""light""
+         }, {
+             name: ""Purple Haze"",
+-            id: ""purple-haze""
++            id: ""purplehaze""
+         }, {
+             name: ""Windows Media Center"",
+             id: ""wmc""",why not rename to `emerald`?,js,1,0,1
+"@@ -9,3 +9,14 @@ export function assign(obj, props) {
+ 	for (let i in props) obj[i] = props[i];
+ 	return /** @type {O & P} */ (obj);
+ }
++
++/**
++ * Remove a child node from its parent if attached. This is a workaround for
++ * IE11 which doesn't support `Element.prototype.remove()`. Using this function
++ * is smaller than including a dedicated polyfill.
++ * @param {Node} node The node to remove
++ */
++export function removeNode(node) {
++	let parentNode = node.parentNode;
++	if (parentNode) parentNode.removeChild(node);
++}",This is an opportunity with a module build to remove the additional method via build system transform.,js,1,1,1
+"@@ -105,7 +105,7 @@ class SearchConsole extends Component {
+ 						propertyMatches[ 0 ].siteUrl
+ 					);
+ 				} else {
+-					errorMessage = __( 'We found no verified accounts, would you like to verify this URL?', 'google-site-kit' );
++					errorMessage = __( 'We did not find a Search Console property for this site, would you like to create one?', 'google-site-kit' );
+ 				}
+ 
+ 				setErrorMessage( errorMessage );","Can you change the message to `Your site has not yet been added to Search Console. Would you like to add it now?` please, which is found in #600?",js,0,1,1
+"@@ -189,8 +189,8 @@ Blockly.Css.CONTENT = [
+   '}',
+ 
+   '.blocklyDragging>.blocklyPath {',
+-    'fill-opacity: .8;',
+-    'stroke-opacity: .8;',
++    // 'fill-opacity: .8;',
++    // 'stroke-opacity: .8;',
+   '}',
+ 
+   '.blocklyDisabled>.blocklyPath {',",Can we completely remove this?,js,1,0,1
+"@@ -1227,7 +1227,7 @@ bool CLIENT_STATE::enforce_run_list(vector<RESULT*>& run_list) {
+     // and prune those that can't be assigned
+     //
+     assign_coprocs(run_list);
+-    bool scheduled_mt = false;
++    //bool scheduled_mt = false;
+ 
+     // prune jobs that don't fit in RAM or that exceed CPU usage limits.
+     // Mark the rest as SCHEDULED",Can this line be removed?,php,1,0,1
+"@@ -456,6 +456,11 @@ func writeDrupal6DdevSettingsFile(settings *DrupalSettings, filePath string) err
+ // WriteDrushrc writes out drushrc.php based on passed-in values.
+ // This works on Drupal 6 and Drupal 7 or with drush8 and older
+ func WriteDrushrc(app *DdevApp, filePath string) error {
++	// Ignore because this is a settings file.
++	if app.DisableSettingsManagement {
++		return nil
++	}
++
+ 	if fileutil.FileExists(filePath) {
+ 		// Check if the file is managed by ddev.
+ 		signatureFound, err := fileutil.FgrepStringInFile(filePath, DdevFileSignature)","This isn't incorrect IMO, but I think it would be better to fix this in drupal7PostStartAction and also in drupal6PostStartAction. It seems to me like those were both somehow neglected on this. Use drupal8PostStartAction as example. Congrats on your first golang PR! Please make sure to test it manually.",php,1,1,1
+"@@ -16,9 +16,7 @@ use Sonata\MediaBundle\Model\MediaInterface;
+ interface GeneratorInterface
+ {
+     /**
+-     * @abstract
+-     *
+-     * @param \Sonata\MediaBundle\Model\MediaInterface $media
++     * @param MediaInterface $media
+      *
+      * @return string
+      */",why removing this? @core23 ping @Soullivaneuh,php,0,0,1
+"@@ -554,7 +554,7 @@ class SimpleAssertionReconciler extends Reconciler
+                 if (!$array_atomic_type instanceof TNonEmptyArray
+                     || ($array_atomic_type->count < $min_count)
+                 ) {
+-                    if ($array_atomic_type->getId() === 'array<never, never>') {
++                    if (!$array_atomic_type->isEmptyArray()) {
+                         $existing_var_type->removeType('array');
+                     } else {
+                         $non_empty_array = new TNonEmptyArray(",You inverted the condition here.,php,1,1,1
+"@@ -308,7 +308,11 @@ class ProjectAnalyzer
+         $file_extensions = $this->config->getFileExtensions();
+ 
+         foreach ($this->config->getProjectDirectories() as $dir_name) {
+-            $file_paths = $this->file_provider->getFilesInDir($dir_name, $file_extensions);
++            $file_paths = $this->file_provider->getFilesInDir(
++                $dir_name,
++                $file_extensions,
++                [$this->config, 'isInProjectDirs']
++            );
+ 
+             foreach ($file_paths as $file_path) {
+                 if ($this->config->isInProjectDirs($file_path)) {","With the filter pushed down to the iterator, do we still need to check whether the returned file paths are in project / extra dirs?",php,1,1,1
+"@@ -8,7 +8,7 @@
+  * @package Neve
+  */
+ 
+-define( 'NEVE_VERSION', '2.11.6' );
++define( 'NEVE_VERSION', '3.0.0' );
+ define( 'NEVE_INC_DIR', trailingslashit( get_template_directory() ) . 'inc/' );
+ define( 'NEVE_ASSETS_URL', trailingslashit( get_template_directory_uri() ) . 'assets/' );
+ define( 'NEVE_MAIN_DIR', get_template_directory() . '/' );",Let's make sure this is set to the old version before we merge it,php,1,1,1
+"@@ -215,9 +215,13 @@ class IndexingConfigurationSelectorField {
+ 			)
+ 		);
+ 
+-		$selectFieldRenderer = $formEngine = GeneralUtility::makeInstance('TYPO3\\CMS\\Backend\\Form\\FormEngine');
+-		if (!method_exists($selectFieldRenderer, 'getSingleField_typeSelect_checkbox')) {
+-			if (class_exists('TYPO3\\CMS\Backend\\Form\\Element\\SelectElement')) {
++		$selectFieldRenderer = $formEngine = NULL;
++		if (class_exists('TYPO3\\CMS\\Backend\\Form\\FormEngine')) {
++			$selectFieldRenderer = $formEngine = GeneralUtility::makeInstance('TYPO3\\CMS\\Backend\\Form\\FormEngine');
++		}
++
++		if (!isset($selectFieldRenderer) || !method_exists($selectFieldRenderer, 'getSingleField_typeSelect_checkbox')) {
++			if (class_exists('TYPO3\\CMS\Backend\\Form\\Element\\SelectElement') && isset($formEngine)) {
+ 				// TYPO3 CMS 7.2
+ 				$selectFieldRenderer = GeneralUtility::makeInstance('TYPO3\\CMS\Backend\\Form\\Element\\SelectElement', $formEngine);
+ 			} elseif (class_exists('TYPO3\\CMS\\Backend\\Form\\Element\\SelectCheckBoxElement')) {",There is an Backslash missing `TYPO3\\CMS\Backend...`,php,1,1,1
+"@@ -27,7 +27,7 @@ final class CategoryManager implements CategoryManagerInterface
+      */
+     private $categoryManager;
+ 
+-    public function __construct(ManagerInterface $categoryManager)
++    public function __construct(?ManagerInterface $categoryManager = null)
+     {
+         $this->categoryManager = $categoryManager;
+     }",why it this change needed?,php,1,0,1
+"@@ -66,7 +66,7 @@ class StatusGridBuilder implements GridBuilderInterface
+                     'method' => Request::METHOD_DELETE,
+                 ],
+             ]))
+-            ->orderBy('code', 'DESC');
++            ->orderBy('index', 'ASC');
+ 
+         return $grid;
+     }",Its working without changing in DbalStatusGridQuery:getGridQuery ?,php,1,1,1
+"@@ -192,7 +192,17 @@ class MultiBackend extends AbstractBase implements \Zend\Log\LoggerAwareInterfac
+     {
+         $items = [];
+         foreach ($ids as $id) {
+-            $items[] = $this->getStatus($id);
++            try {
++                $items[] = $this->getStatus($id);
++            } catch (ILSException $e) {
++                $items[] = [
++                    [
++                        'id' => $id,
++                        'error' => 'An error has occurred',
++                        'availability_message' => 'status_unknown_message'
++                    ]
++                ];
++            }
+         }
+         return $items;
+     }","If you find a way to display the full unknown message above, it may be necessary to devise a different mechanism for filling it in in this situation. Maybe any entry with 'error' set automatically gets 'availability_message' set to unknown.",php,1,1,1
+"@@ -52,7 +52,7 @@ final class Metadata implements MetadataInterface
+     ) {
+         $this->title = $title;
+         $this->description = $description;
+-        $this->image = null !== $image ? $image : 'data:image/png;base64,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';
++        $this->image = $image;
+         $this->domain = $domain;
+         $this->options = $options;
+     }",Why did you change this?,php,1,0,1
+"@@ -11,8 +11,6 @@
+ 
+ namespace Sonata\MediaBundle\Tests\Command;
+ 
+-use Sonata\ClassificationBundle\Model\CategoryManagerInterface;
+-use Sonata\ClassificationBundle\Model\ContextManagerInterface;
+ use Sonata\MediaBundle\Command\FixMediaContextCommand;
+ use Sonata\MediaBundle\Provider\Pool;
+ use Symfony\Component\Console\Application;",We can keep the imports.,php,1,1,1
+"@@ -15,6 +15,11 @@ namespace Sonata\ClassificationBundle\Model;
+ 
+ interface ContextInterface
+ {
++    /**
++     * @return mixed
++     */
++    public function getId();
++
+     public function getName(): ?string;
+ 
+     /**",isnt this a bc break?,php,1,0,1
+"@@ -23,8 +23,12 @@ var (
+ 	plugin   = ""local""
+ 	// 1 week
+ 	updateInterval = time.Hour * 24 * 7
++	siteName       string
++	serviceType    string
+ )
+ 
++const netName = ""ddev_default""
++
+ // RootCmd represents the base command when called without any subcommands
+ var RootCmd = &cobra.Command{
+ 	Use:   ""ddev"",",It feels like we should be working to reduce/eliminate our global vars. I'm not sure it adds much here. Any objection to just removing it?,php,1,1,1
+"@@ -18,6 +18,7 @@ use Thelia\Core\Event\TheliaEvents;
+ use Thelia\Core\Security\Resource\AdminResources;
+ use Thelia\Exception\CustomerException;
+ use Thelia\Form\Definition\AdminForm;
++use Thelia\Model\Customer;
+ use Thelia\Model\CustomerQuery;
+ use Thelia\Tools\Password;
+ ",This class seems never used.,php,1,1,1
+"@@ -232,6 +232,8 @@ class FormController extends ControllerBehavior
+ 
+         $this->initForm($model);
+ 
++        $model->forceFill($this->formWidget->getSaveData());
++
+         $this->controller->formBeforeSave($model);
+         $this->controller->formBeforeCreate($model);
+ ",Why is this required?,php,1,0,1
+"@@ -80,11 +80,13 @@ class FileProvider extends BaseProvider implements FileProviderInterface
+ 
+     public function getReferenceImage(MediaInterface $media): string
+     {
+-        return sprintf(
+-            '%s/%s',
+-            $this->generatePath($media),
+-            $media->getProviderReference()
+-        );
++        $providerReference = $media->getProviderReference();
++
++        if (null === $providerReference) {
++            return '';
++        }
++
++        return sprintf('%s/%s', $this->generatePath($media), $providerReference);
+     }
+ 
+     public function getReferenceFile(MediaInterface $media): GaufretteFile",Same thing about reference to videos here.,php,0,0,1
+"@@ -318,11 +318,11 @@ class CallChecker
+                     $stmt->args,
+                     $method_id,
+                     $function_params,
++                    $code_location,
++                    $context->check_variables,
+                     $function_storage,
+                     null,
+-                    $generic_params,
+-                    $code_location,
+-                    $context->check_variables
++                    $generic_params
+                 ) === false) {
+                     // fall through
+                 }",These arguments were shifted around because PSR-2 requires that method arguments with default values go at the end of the list.,php,1,1,1
+"@@ -25,9 +25,6 @@ class MissingLocaleException extends Exception
+         parent::__construct($message, 0, $previous);
+     }
+ 
+-    /**
+-     * @return string
+-     */
+     public function getLocale()
+     {
+         return $this->locale;",This should not have been removed!,php,1,0,1
+"@@ -10608,7 +10608,7 @@ return [
+ 'RdKafka\ProducerTopic::__construct' => ['void'],
+ 'RdKafka\ProducerTopic::getName' => ['string'],
+ 'RdKafka\ProducerTopic::produce' => ['void', 'partition'=>'int', 'msgflags'=>'int', 'payload'=>'string', 'key='=>'?string'],
+-'RdKafka\ProducerTopic::producev' => ['void', 'partition'=>'int', 'msgflags'=>'int', 'payload'=>'string', 'key='=>'?string', 'headers'=>'?array<string, string>', 'timestamp_ms'=>'?int'],
++'RdKafka\ProducerTopic::producev' => ['void', 'partition'=>'int', 'msgflags'=>'int', 'payload'=>'string', 'key='=>'?string', 'headers='=>'?array<string, string>', 'timestamp_ms='=>'?int', 'opaque='=>'?string'],
+ 'RdKafka\Queue::__construct' => ['void'],
+ 'RdKafka\Queue::consume' => ['?RdKafka\Message', 'timeout_ms'=>'string'],
+ 'RdKafka\Topic::getName' => ['string'],","`$opaque` is only available with RdKafka 5.0, right? This raises an interesting question that went largely ignored before: should we split callmaps for non-core extensions out into their own files and version them based on the extension version? PECL extensions have their own version cycle, not bound to PHP release lifecycle. E.g. RdKafka 4.1 supports PHP 5.6 - 7.\*, while 5.0 supports an overlapping range of 7.\* - 8.\*. So when running on 7.4 you could have either 4.1 or 5.0, but we're forced to choose a single signature to put into 7.4 callmap. @muglug @orklah thoughts?",php,0,1,0
+"@@ -801,9 +801,11 @@ namespace vboxmanage {
+                 return deregister_vm(false);
+             } else {
+                 command  = ""closemedium dvd \"""" + virtual_machine_slot_directory + ""/"" + iso_image_filename + ""\"" "";
++                // coverity[CHECKED_RETURN]
+                 vbm_popen(command, output, ""remove virtual ISO 9660 disk"", false);
+                 if (enable_cache_disk) {
+                      command  = ""closemedium disk \"""" + virtual_machine_slot_directory + ""/"" + cache_disk_filename + ""\"" "";
++                     // coverity[CHECKED_RETURN]
+                      vbm_popen(command, output, ""remove virtual cache disk"", false);
+                 }
+             }","@ChristianBeer, Personally I don't like stuff like this. Are these checks so critical and important that we need to say to coverity that we are ok with this? As far as I know, we don't have a mission to achieve 0 messages from any static analyzer, so why do we need this?",php,0,1,1
+"@@ -50,7 +50,7 @@ interface MediaProviderInterface
+     /**
+      * return the format settings.
+      *
+-     * @return array<string, mixed>|false the format settings
++     * @return array|false the format settings
+      *
+      * @phpstan-return FormatOptions|false
+      */",you could have kept the precision,php,1,1,1
+"@@ -76,6 +76,7 @@ class ServiceProvider extends ModuleServiceProvider
+             $combiner->registerBundle('~/modules/backend/formwidgets/fileupload/assets/less/fileupload.less');
+             $combiner->registerBundle('~/modules/backend/formwidgets/nestedform/assets/less/nestedform.less');
+             $combiner->registerBundle('~/modules/backend/formwidgets/richeditor/assets/js/build-plugins.js');
++            $combiner->registerBundle('~/modules/backend/formwidgets/colorpicker/assets/less/colorpicker.less');
+ 
+             /*
+              * Rich Editor is protected by DRM",@w20k widget assets are recompiled when they're registered like this and then `php artisan october:util compile` is run.,php,0,1,1
+"@@ -653,8 +653,7 @@ func drupalEnsureWritePerms(app *DdevApp) error {
+ 
+ 	for _, o := range makeWritable {
+ 		stat, err := os.Stat(o)
+-		// If the file doesn't exist, don't try to set the permissions.
+-		if os.IsNotExist(err) {
++		if err != nil {
+ 			continue
+ 		}
+ ","I'm pretty sure this should emit a util.Warning*(), since we're skipping by here and never hitting anything that will give them a warning about what's happened.",php,1,1,1
+"@@ -24,14 +24,14 @@ return [
+         ],
+         'access_denied' => [
+             'label' => 'Hozzáférés megtagadva',
+-            'help' => 'Ön nem rendelkezik a szükséges engedélyekkel ennek a lapnak a megtekintéséhez.',
++            'help' => 'Nem rendelkezik a szükséges engedélyekkel ennek a lapnak a megtekintéséhez.',
+             'cms_link' => 'Vissza a látogatói oldalra'
+         ],
+         'no_database' => [
+             'label' => 'Az adatbázis nem elérhető',
+             'help' => 'Kérjük ellenőrizze a hozzáférési adatok helyességét majd próbálja újra betölteni az oldalt.',
+             'cms_link' => 'Vissza a weboldalra'
+-        ],
++        ]
+     ],
+     'partial' => [
+         'not_found_name' => ""A(z) ':name' részlap nem található."",","All array elements should have a trailing comma in the language files, this makes it much easier to update them in the future. I'm not going to force people to add them but I do draw the line at them being removed @gergo85   (@w20k @bennothommo FYI)",php,0,1,1
+"@@ -193,7 +193,7 @@ int FILE_INFO::verify_file(
+     //
+     if (download_gzipped && !boinc_file_exists(pathname)) {
+         char gzpath[MAXPATHLEN];
+-        snprintf(gzpath, sizeof(gzpath), ""%s.gz"", pathname);
++        snprintf(gzpath, sizeof(gzpath), ""%.2048s.gz"", pathname);
+         if (boinc_file_exists(gzpath) ) {
+             if (allow_async && nbytes > ASYNC_FILE_THRESHOLD) {
+                 ASYNC_VERIFY* avp = new ASYNC_VERIFY;","`pathname` is 4096 symbols long. `gzpath` too. Maybe it worth to change this: `""%.2048s.gz"", pathname` to this: `""%.*s.gz"", sizeof(gzpath)-3, pathname` ?",php,1,1,1
+"@@ -10273,7 +10273,7 @@ return [
+ 'preg_filter' => ['null|string|string[]', 'pattern'=>'mixed', 'replacement'=>'mixed', 'subject'=>'mixed', 'limit='=>'int', '&w_count='=>'int'],
+ 'preg_grep' => ['array|false', 'pattern'=>'string', 'array'=>'array', 'flags='=>'int'],
+ 'preg_last_error' => ['int'],
+-'preg_match' => ['int|false', 'pattern'=>'string', 'subject'=>'string', '&w_matches='=>'string[]', 'flags='=>'0|', 'offset='=>'int'],
++'preg_match' => ['int|false', 'pattern'=>'string', 'subject'=>'string', '&w_matches='=>'string[]', 'flags='=>'0', 'offset='=>'int'],
+ 'preg_match\'1' => ['int|false', 'pattern'=>'string', 'subject'=>'string', '&w_matches='=>'array', 'flags='=>'int', 'offset='=>'int'],
+ 'preg_match_all' => ['int|false', 'pattern'=>'string', 'subject'=>'string', '&w_matches='=>'array', 'flags='=>'int', 'offset='=>'int'],
+ 'preg_quote' => ['string', 'str'=>'string', 'delimiter='=>'string'],",Why flags are 0 here?,php,1,1,1
+"@@ -3,7 +3,6 @@
+ namespace Shopsys\FrameworkBundle\Controller\Admin;
+ 
+ use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
+-use Shopsys\FrameworkBundle\Component\Controller\AdminBaseController;
+ use Shopsys\FrameworkBundle\Model\Mail\MailTemplateFacade;
+ use Shopsys\FrameworkBundle\Model\Statistics\StatisticsFacade;
+ use Shopsys\FrameworkBundle\Model\Statistics\StatisticsProcessingFacade;","the blank line should not be here. Also, there is a typo in commit message - ""jut"" instead of ""just""",php,1,1,1
+"@@ -102,18 +102,9 @@ return [
+ 
+             return $contents;
+         },
+-        function ($filePath, $prefix, $contents) {
+-            $ret = str_replace(
+-                $prefix . '\Psalm\Plugin\\',
+-                'Psalm\Plugin\\',
+-                $contents
+-            );
+-            return $ret;
+-        },
+     ],
+     'whitelist' => [
+         \Composer\Autoload\ClassLoader::class,
+-        'Psalm\Plugin\*',
+     ],
+     'files-whitelist' => [
+         'src/Psalm/Internal/PropertyMap.php',",Wouldn't these changes cause problems running plugins with phar-packaged Psalm?,php,1,1,1
+"@@ -66,7 +66,7 @@ class UserDataFixture extends AbstractReferenceFixture implements DependentFixtu
+         $customersData = $this->loaderService->getCustomersDataByDomainId(Domain::FIRST_DOMAIN_ID);
+ 
+         foreach ($customersData as $customerData) {
+-            $customerData->userData->createdAt = $this->faker->dateTimeBetween('-1 week', 'now');
++            $customerData->userData->createdAt = $this->faker->dateTimeBetween('-2 week', 'now');
+ 
+             $customer = $this->customerFacade->create($customerData);
+ ",so you would need to regenerate demodata regularly to have the same statistics.....,php,1,0,1
+"@@ -114,8 +114,9 @@ abstract class BaseMediaAdmin extends AbstractAdmin
+                         $this->getRequest()->get(sprintf('%s[providerName]', $uniqid), null, true)
+                     );
+                 } else {
++                    $provider = $this->getRequest()->get($uniqid);
+                     $media->setProviderName(
+-                        $this->getRequest()->get($uniqid['providerName'])
++                        $provider['providerName']
+                     );
+                 }
+             } else {",Now it can be single line.,php,1,1,1
+"@@ -74,8 +74,8 @@ class ExtensionConfigurationTest extends UnitTest
+             ['useConfigurationMonitorTables' => 'pages, tt_content']
+         );
+         $expectedResult = [
+-            'pages' => true,
+-            'tt_content' => true
++            'pages' => 0,
++            'tt_content' => 1
+         ];
+         $this->assertEquals($expectedResult, $configurationUseConfigurationTrackRecordsOutsideSiteroot->getIsUseConfigurationMonitorTables());
+     }",Is this really a wanted change? Becuase pages should also be 1 from my thinking and also we change the values from boolean to int?,php,1,1,1
+"@@ -0,0 +1,16 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Bolt\Widget;
++
++use Psr\SimpleCache\CacheInterface;
++
++/**
++ * Interface CacheAware - Widgets that make use of caching need to implement
++ * this interface, in order to have their contents cached.
++ */
++interface CacheAware extends WidgetInterface
++{
++    public function setCacheInterface(CacheInterface $config): void;
++}",setCache* or setCacheAdapter*,php,1,0,0
+"@@ -14,6 +14,7 @@ class TArray extends \Psalm\Type\Atomic
+ 
+     /**
+      * @var array{\Psalm\Type\Union, \Psalm\Type\Union}
++     * @psalm-suppress NonInvariantPropertyType
+      */
+     public $type_params;
+ ",Maybe this and similar properties can be deleted from the code and we can just use the properties declared in the parent classes?,php,1,1,1
+"@@ -401,7 +401,10 @@ class FileProvider extends BaseProvider
+             $media->setProviderReference($this->generateReferenceName($media));
+         }
+ 
+-        if ($media->getBinaryContent() instanceof File) {
++        if ($media->getBinaryContent() instanceof UploadedFile) {
++            $media->setContentType($media->getBinaryContent()->getClientMimeType());
++            $media->setSize($media->getBinaryContent()->getSize());
++        } elseif ($media->getBinaryContent() instanceof File) {
+             $media->setContentType($media->getBinaryContent()->getMimeType());
+             $media->setSize($media->getBinaryContent()->getSize());
+         }",Can the client mimetype be null?,php,1,1,1
+"@@ -26,7 +26,7 @@ return [
+         'se' => 'Swedish',
+         'sk' => 'Slovak (Slovakia)',
+         'tr' => 'Turkish',
+-        'zh-cn' => 'Chinese (China)',
++        'zh-cn' => '简体中文',
+         'el' => 'Greek'
+     ],
+     'directory' => [","This should be the word ""Chinese"" in English",php,1,1,1
+"@@ -66,8 +66,14 @@ class AdminController extends Controller
+             return $forbiddenActionResponse;
+         }
+ 
++        $entity = $request->query->get('entity');
++        if (isset($this->entity['role']) &&
++            !$this->get('security.context')->isGranted($this->entity['role'])) {
++                throw $this->createAccessDeniedException();
++        }
++
+         // for now, the homepage redirects to the 'list' action and view of the first entity
+-        if (null === $request->query->get('entity')) {
++        if (null === $entity) {
+             return $this->redirect($this->generateUrl('admin', array(
+                 'action' => $action,
+                 'entity' => $this->getNameOfTheFirstConfiguredEntity(),","This would need a bridge/alternative to fit to SF2.7+, because the `security.context` is going to disappear",php,1,1,1
+"@@ -1062,11 +1062,13 @@ class DynamicMap(HoloMap):
+         self[key] = val
+ 
+ 
+-    def map(self, map_fn, specs=None, clone=True):
++    def map(self, map_fn, specs=None, clone=True, link_inputs=True):
+         """"""
+         Recursively replaces elements using a map function when the
+         specification applies. Extends regular map with functionality
+-        to dynamically apply functions.
++        to dynamically apply functions. By default all streams are
++        still linked to the mapped object, to disable linked streams
++        set linked_inputs=False.
+         """"""
+         deep_mapped = super(DynamicMap, self).map(map_fn, specs, clone)
+         if isinstance(deep_mapped, type(self)):",Seems useful though I just want to check this feature is unrelated to the rest of the PR...,py,0,0,0
+"@@ -471,6 +471,9 @@ class RemoteConnection(object):
+             request.add_header('Accept', 'application/json')
+             request.add_header('Content-Type', 'application/json;charset=UTF-8')
+ 
++            base64string = base64.b64encode('%s:%s' % (parsed_url.username, parsed_url.password))
++            request.add_header(""Authorization"", ""Basic %s"" % base64string)
++
+             if password_manager:
+                 opener = url_request.build_opener(url_request.HTTPRedirectHandler(),
+                                                   HttpErrorHandler(),","This will always add the authorization header to the request object. Is this the right scope for these two lines? If username/password are not defined, it will encode 'Basic :'",py,1,1,1
+"@@ -390,6 +390,8 @@ class Similar:
+ 
+     def run(self) -> None:
+         """"""start looking for similarities and display results on stdout""""""
++        if self.min_lines == 0:
++            sys.exit(0)
+         self._display_sims(self._compute_sims())
+ 
+     def _compute_sims(self) -> List[Tuple[int, Set[LinesChunkLimits_T]]]:","Here, it won't work! Use `return` instead.",py,1,1,0
+"@@ -170,7 +170,11 @@ class UIATextRangeAttributeValueFetcher(object):
+ 		self.textRange=textRange
+ 
+ 	def getValue(self,ID,ignoreMixedValues=False):
+-		val=self.textRange.getAttributeValue(ID)
++		try:
++			val=self.textRange.getAttributeValue(ID)
++		except COMError:
++			# #7124: some text attributes are not supported in  older Operating Systems 
++			return UIAHandler.handler.reservedNotSupportedValue
+ 		if not ignoreMixedValues and val==UIAHandler.handler.ReservedMixedAttributeValue:
+ 			raise UIAMixedAttributeError
+ 		return val","Is this something that would be helpful to log? Would that cause a lot of noise in the log? I'm considering a case where we are investigating why something does not work in a particular OS for instance. What happens when `reservedNotSupportedValue` is returned, is this handled gracefully in all cases?",py,1,1,1
+"@@ -248,12 +248,12 @@ def snmpwalk(dst, oid=""1"", community=""public""):
+     try:
+         while True:
+             r = sr1(IP(dst=dst)/UDP(sport=RandShort())/SNMP(community=community, PDU=SNMPnext(varbindlist=[SNMPvarbind(oid=oid)])),timeout=2, chainCC=1, verbose=0, retry=2)
+-            if ICMP in r:
+-                print(repr(r))
+-                break
+             if r is None:
+                 print(""No answers"")
+                 break
++            if ICMP in r:
++                print(repr(r))
++                break
+             print(""%-40s: %r"" % (r[SNMPvarbind].oid.val,r[SNMPvarbind].value))
+             oid = r[SNMPvarbind].oid
+             ",How about `r.show()`,py,1,0,1
+"@@ -4,7 +4,6 @@
+ #See the file COPYING for more details.
+ 
+ from baseObject import AutoPropertyObject, ScriptableObject
+-from scriptHandler import isScriptWaiting
+ import config
+ import textInfos
+ import speech",I think you can do the same with `speech`,py,1,0,1
+"@@ -133,7 +133,7 @@ def makePgettext(translations):
+ 				return message
+ 	else:
+ 		def pgettext(context, message):
+-			return unicode(message)
++			return message
+ 	return pgettext
+ 
+ def getWindowsLanguage():","Why do we have this else statement? Shouldn't this fail if translations is not an instance of gettext.GNUTranslations? If not, what else do we expect and how should that be handled?",py,1,1,1
+"@@ -8,8 +8,8 @@ from enum import Enum
+ import re
+ 
+ PUBLIC = 'public' # This username is blocked by Quilt signup
+-VALID_NAME_RE = re.compile(r'^[a-zA-Z]\w*$')
+-EMAILREGEX = re.compile(r'^([^\s@]+)@([^\s@]+)$')
++VALID_NAME_RE = re.compile(r'^[a-zA-Z]\w*$', re.UNICODE)
++VALID_EMAIL_RE = re.compile(r'^([^\s@]+)@([^\s@]+)$')
+ 
+ class PaymentPlan(Enum):
+     FREE = 'free'",This shouldn't change - usernames can't actually have non-ascii characters.,py,1,1,1
+"@@ -486,6 +486,9 @@ class FirewallRules(object):
+           InvalidFirewallRuleError: One or more rules failed validation.
+         """"""
+         for rule in rules:
++            if not isinstance(rule, dict):
++                raise InvalidFirewallRuleError(
++                    'Invalid rule type. Found %s expected %s', type(rule), dict)
+             self.add_rule(rule, network_name=network_name)
+ 
+     def add_rule(self, rule, network_name=None):","I believe the check should be before this for loop, i.e. make sure we are getting a list of rules.",py,1,1,1
+"@@ -21,8 +21,11 @@ def main(argv):
+         .filter(Instance.keywords_tsv.is_(None))
+     )
+ 
+-    for instance, owner, name in rows:
++    for idx, (instance, owner, name) in enumerate(rows):
++        print(""%s/%s/%s"" % (owner, name, instance.hash))
+         instance.keywords_tsv = keywords_tsvector(owner, name, instance.contents)
++        if (idx + 1) % 100 == 0:
++            db.session.commit()
+ 
+     db.session.commit()
+     print(""Done!"")",extremely minor: if you use `%s/%s:%s` it will be consistent with install syntax. i guess we won't need to install from the logs.,py,1,1,1
+"@@ -73,6 +73,17 @@ def init():
+     download_manager.install(webenginesettings.private_profile)
+     objreg.register('webengine-download-manager', download_manager)
+ 
++    # Clear visited links on web history clear
++    hist = objreg.get('web-history')
++    hist.history_cleared.connect(
++        webenginesettings.default_profile.clearAllVisitedLinks)
++    hist.history_cleared.connect(
++        webenginesettings.private_profile.clearAllVisitedLinks)
++    hist.url_cleared.connect(
++        lambda url: webenginesettings.default_profile.clearVisitedLinks([url]))
++    hist.url_cleared.connect(
++        lambda url: webenginesettings.private_profile.clearVisitedLinks([url]))
++
+ 
+ # Mapping worlds from usertypes.JsWorld to QWebEngineScript world IDs.
+ _JS_WORLD_MAP = {","No strong feelings on this one, but might be worth making it a for-loop maybe? (`for profile in [webenginesettings.default_profile, webenginesettings.private_profile]: ...`)",py,1,1,1
+"@@ -62,9 +62,9 @@ class SDRCategoryEncoder(Encoder):
+     # enable certain experiments.
+     #
+     # ""5"" is arbitrary -- this is just to catch bad parameter choices
+-    #if self.w >= self.n - 4:
+-    #  raise RuntimeError(""Number of bits in SDR (%d) must be much smaller than ""
+-    #                     ""the output width (%d)"" % (self.w, self.n))
++    if (self.n/self.w) < 2: # w is 50% of total len
++      raise RuntimeError(""Number of ON bits in SDR (%d) must be much smaller than ""
++                         ""the output width (%d)"" % (self.w, self.n))
+ 
+     # Another arbitrary cutoff to catch likely mistakes
+     if self.w < 3:",This check is probably a little more reasonable for category encoders.,py,1,1,1
+"@@ -73,12 +73,12 @@ class MPLRendererTest(ComparisonTestCase):
+     def test_get_size_row_plot(self):
+         plot = self.renderer.get_plot(self.image1+self.image2)
+         w, h = self.renderer.get_size(plot)
+-        self.assertEqual((w, h), (576, 258))
++        self.assertEqual((w, h), (576, 255))
+ 
+     def test_get_size_column_plot(self):
+         plot = self.renderer.get_plot((self.image1+self.image2).cols(1))
+         w, h = self.renderer.get_size(plot)
+-        self.assertEqual((w, h), (288, 510))
++        self.assertEqual((w, h), (288, 505))
+ 
+     def test_get_size_grid_plot(self):
+         grid = GridSpace({(i, j): self.image1 for i in range(3) for j in range(3)})",At least the changes here are small...,py,0,0,1
+"@@ -359,7 +359,17 @@ class Interface(param.Parameterized):
+         else:
+             return data.dtype
+ 
+-
++    @classmethod
++    def replace_value(cls, data, nodata):
++        """"""
++        Replace `nodata` value in data with NaN
++        """"""
++        data = data.astype('float64')
++        mask = data != nodata
++        if hasattr(data, 'where'):
++            return data.where(mask, np.NaN)
++        return np.where(mask, data, np.NaN)
++        
+     @classmethod
+     def select_mask(cls, dataset, selection):
+         """"""",I guess this duplicates `apply_nodata._replace_value` in `plotting.util` a bit but that is probably ok...,py,1,1,1
+"@@ -1,8 +1,13 @@
+ from random import random
+ 
++<<<<<<< HEAD
++=======
++from bzt.utils import to_json
+ from tests import BZTestCase, r
+ 
++>>>>>>> cba72f5388bd3647b636c773e6893428e37da306
+ from bzt.modules.aggregator import ConsolidatingAggregator, DataPoint, KPISet, AggregatorListener
++from tests import BZTestCase, r
+ from tests.mocks import MockReader
+ 
+ ","This is unintentional, obviously",py,1,0,1
+"@@ -99,7 +99,7 @@ test_cfg = dict(
+ )
+ # dataset settings
+ dataset_type = 'CocoDataset'
+-data_root = 'data/coco/'
++data_root = '/data1/home/zhez/data_local/coco/'
+ img_norm_cfg = dict(
+     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+ data = dict(",This change is unnecessary.,py,1,0,1
+"@@ -68,6 +68,7 @@ class NamespaceTest(ReusedSQLTestCase, SQLTestUtils):
+ 
+     def test_concat_index_axis(self):
+         pdf = pd.DataFrame({""A"": [0, 2, 4], ""B"": [1, 3, 5], ""C"": [6, 7, 8]})
++        # TODO: pdf.columns.names = [""ABC""]
+         kdf = ks.from_pandas(pdf)
+ 
+         ignore_indexes = [True, False]",Let me address this later.,py,0,0,1
+"@@ -1139,18 +1139,7 @@ class GlobalCommands(ScriptableObject):
+ 			try:
+ 				c = ord(info.text)
+ 			except TypeError:
+-				# This might be a character taking multiple code points.
+-				# If it is a 32 bit character, encode it to UTF-32 and calculate the ord manually.
+-				# In Python 3, this is no longer necessary.
+-				try:
+-					encoded = info.text.encode(""utf_32_le"")
+-				except UnicodeEncodeError:
+-					c = None
+-				else:
+-					if len(encoded)==4:
+-						c = sum(ord(cp)<<i*8 for i, cp in enumerate(encoded))
+-					else:
+-						c = None
++				c = None
+ 			if c is not None:
+ 				speech.speakMessage(""%d,"" % c)
+ 				speech.speakSpelling(hex(c))","In python 3, a character in a string is always one code point. Therefore this code is now obsolete.",py,1,1,1
+"@@ -112,7 +112,7 @@ class AbstractServiceConfig(object):
+         raise NotImplementedError()
+ 
+ 
+-class AbstractInventoryConfig(dict):
++class AbstractInventoryConfig(object):
+     """"""Abstract base class for service configuration. This class
+     is used to implement dependency injection for the gRPC services.""""""
+ ",Will this break other part of the code? if it's not a dictionary you can no longer access using the .get(key) method.,py,1,1,1
+"@@ -249,9 +249,9 @@ class JUnitTester(JavaTestRunner, HavingInstallableTools):
+                 props.write(""target_%s=%s\n"" % (index, item.replace(os.path.sep, '/')))
+ 
+         class_path = os.pathsep.join(self.base_class_path)
+-        junit_command_line = [""java"", ""-cp"", class_path, ""taurusjunit.CustomRunner"", self.props_file]
++        junit_cmd_line = [""java"", ""-cp"", class_path, ""-Djna.nosys=true"", ""taurusjunit.CustomRunner"", self.props_file]
+ 
+-        self._start_subprocess(junit_command_line)
++        self._start_subprocess(junit_cmd_line)
+ 
+ 
+ class TestNGTester(JavaTestRunner, HavingInstallableTools):","If it's for Windows only, maybe add it conditionally?",py,1,1,1
+"@@ -262,15 +262,13 @@ class DynamicOutput(
+         )
+ 
+ 
+-MetadataValues = Union[str, float, int, Dict, EventMetadataEntry]
+-
+-
+ @whitelist_for_serdes
+ class AssetObservation(
+     NamedTuple(
+         ""_AssetObservation"",
+         [
+             (""asset_key"", AssetKey),
++            (""description"", Optional[str]),
+             (""metadata_entries"", List[EventMetadataEntry]),
+             (""partition"", Optional[str]),
+         ],",maybe these core changes should be part of a separate diff than the frontend/graphql changes?,py,1,1,1
+"@@ -12,7 +12,7 @@ from .package import Package, PackageException
+ from .util import BASE_DIR
+ 
+ # start with alpha (_ may clobber attrs), continue with alphanumeric or _
+-VALID_NAME_RE = re.compile(r'^[a-zA-Z]\w*$')
++VALID_NAME_RE = re.compile(r'^[a-zA-Z]\w*(:[a-zA-Z]\w*)?$')
+ CHUNK_SIZE = 4096
+ 
+ # Helper function to return the default package store path","Technically the prefix is the optional part, not the suffix. Just a nitpick",py,1,1,1
+"@@ -180,8 +180,12 @@ class MetastoreClient(HiveClient):
+     def table_location(self, table, database='default', partition=None):
+         with HiveThriftContext() as client:
+             if partition is not None:
+-                partition_str = self.partition_spec(partition)
+-                thrift_table = client.get_partition_by_name(database, table, partition_str)
++                try:
++                    import hive_metastore.ttypes
++                    partition_str = self.partition_spec(partition)
++                    thrift_table = client.get_partition_by_name(database, table, partition_str)
++                except hive_metastore.ttypes.NoSuchObjectException as e:
++                    return ''
+             else:
+                 thrift_table = client.get_table(database, table)
+             return thrift_table.sd.location",can you fix this flake8 issue? `./luigi/contrib/hive.py:187:71: F841 local variable 'e' is assigned to but never used` (btw you can run `tox -e flake8` locally to test),py,0,1,1
+"@@ -595,9 +595,9 @@ class Params(Stream):
+         if parameters is None:
+             parameters = [p for p in parameterized.params() if p != 'name']
+         super(Params, self).__init__(parameterized=parameterized, parameters=parameters, **params)
++        self._memoize = True
+         if watch:
+-            for p in self.parameters:
+-                self.parameterized.param.watch(self._listener, p)
++            self.parameterized.param.watch(self._listener, self.parameters)
+ 
+     def _validate_rename(self, mapping):
+         for k, v in mapping.items():","Little bit confused as the the `watch` argument: it doesn't seem to be state (either an attribute or a parameter) but is set through the constructor. Are there cases where you expect users to set `watch=False` even if watch could be supported by the param version? If not, I would remove this argument so that the param version check is sufficient to know whether watch is being used or not (something you need to determine in `Dynamic` later...)",py,1,1,0
+"@@ -363,6 +363,8 @@ class ConfigManager(QObject):
+             _get_value_transformer({'false': 'none', 'true': 'debug'}),
+         ('ui', 'keyhint-blacklist'):
+             _get_value_transformer({'false': '*', 'true': ''}),
++        ('hints', 'auto-follow'):
++            _get_value_transformer({'false': 'never', 'true': 'unique-match'}),
+     }
+ 
+     changed = pyqtSignal(str, str)","I think `full-match` would be closer to the current `true` behaviour, right? On the other hand, probably `unique-match` makes more sense as the new default.",py,1,1,1
+"@@ -239,12 +239,15 @@ class FSAFHead(RetinaHead):
+             labels_list,
+             list(range(len(losses_cls))),
+             min_levels=argmin)
+-        # Clamp num_pos to 1e-3 to prevent 0/0
+-        num_pos = torch.cat(pos_inds, 0).sum().float().clamp(min=1e-3)
++        num_pos = torch.cat(pos_inds, 0).sum().float()
+         acc = self.calculate_accuracy(cls_scores, labels_list, pos_inds)
+         for i in range(len(losses_cls)):
+-            losses_cls[i] /= num_pos
+-            losses_bbox[i] /= num_pos
++            if num_pos == 0:
++                avg_factor = num_pos + float(num_total_neg)
++            else:
++                avg_factor = num_pos
++            losses_cls[i] /= avg_factor
++            losses_bbox[i] /= avg_factor
+         return dict(
+             loss_cls=losses_cls,
+             loss_bbox=losses_bbox,",The computation of `avg_factor` can be moved out of the for-loop.,py,1,1,1
+"@@ -16,7 +16,10 @@ import param
+ from .dimension import Dimension, Dimensioned, ViewableElement
+ from .ndmapping import OrderedDict, NdMapping, UniformNdMapping
+ from .tree import AttrTree
+-from .util import (unique_array, get_path, make_path_unique, int_to_roman)
++from .util import (
++    unique_array, get_path, make_path_unique, int_to_roman,
++    unique_iterator
++)
+ from . import traversal
+ 
+ ",At this point isn't it better to use ``util`` as a qualified namespace?,py,1,1,1
+"@@ -0,0 +1,13 @@
++""""""Molecule Application Module.""""""
++from ansible_compat.runtime import Runtime
++
++
++class App:
++    """"""App class that keep runtime status.""""""
++
++    def __init__(self) -> None:
++        """"""Create a new app instance.""""""
++        self.runtime = Runtime(isolated=True)
++
++
++app = App()",Is this an attempt to make a mutable singleton? Why not initialize it during the startup sequence and then pass around DI-style?,py,1,1,1
+"@@ -37,9 +37,9 @@ class FunctionHooker(object):
+ 	def __init__(self,targetDll,importDll,funcName,newFunction):
+ 		hook=NVDAHelper.localLib.dllImportTableHooks_hookSingle(targetDll,importDll,funcName,newFunction)
+ 		if hook:
+-			print ""hooked %s""%funcName
++			print(""hooked %s""%funcName)
+ 		else:
+-			print ""could not hook %s""%funcName
++			print(""could not hook %s""%funcName)
+ 			raise RuntimeError(""could not hook %s""%funcName)
+ 
+ 	def __del__(self):","Actually, the print statements in this file should have always been log.debug calls. Currently they are just noise going to stdout.",py,1,1,1
+"@@ -1310,3 +1310,14 @@ class IndexesTest(ReusedSQLTestCase, TestUtils):
+ 
+         for lv, output in zip(level_names, outputs):
+             self.assertEqual(output, kdf.index._get_level_number(lv))
++
++    def test_abs(self):
++        pidx = pd.Index([-2, -1, 0, 1])
++        kidx = ks.from_pandas(pidx)
++
++        self.assert_eq(abs(pidx), abs(kidx))
++        self.assert_eq(np.abs(pidx), np.abs(kidx))
++
++        kidx = ks.from_pandas(pd.MultiIndex.from_tuples([(1, 2)], names=[""level1"", ""level2""]))
++        with self.assertRaisesRegexp(TypeError, ""perform __abs__ with this index""):
++            abs(kidx)",nit: we have `ks.MultiIndex.from_tuples`.,py,1,0,1
+"@@ -5,6 +5,14 @@ from os import path
+ from bzt.modules.siege import SiegeExecutor, DataLogReader
+ from tests import BZTestCase
+ from tests.mocks import EngineEmul
++from bzt.utils import is_windows
++
++
++def tool_name():
++    if is_windows():
++        return 'siege.bat'
++    else:
++        return 'siege.sh'
+ 
+ 
+ def get_res_path(resource):",Look how it's done everywhere with utils.EXE_SUFFIX constant.,py,1,1,1
+"@@ -407,6 +407,8 @@ class HttpLayer(base.Layer):
+                 self.channel.ask(""responseheaders"", f)
+ 
+             self.log(""response"", ""debug"", [repr(f.response)])
++            if hasattr(self, 'has_tailers') and self.has_tailers:
++                f.trailers = self.read_trailers_headers()
+             self.channel.ask(""response"", f)
+ 
+             if not f.response.stream:","Is `has_tailers` necessary? Shouldn't `flow.trailers == None` be the same information? If we really need `has_tailers`, please make it a first-class citizen of the Response object (instead of checking if it has been set during runtime), so it also serializes properly, and we can remove the `hasattr` checks.",py,1,1,1
+"@@ -117,6 +117,10 @@ public class DistributorStatus {
+       return up;
+     }
+ 
++    public boolean isDocker() {
++      return up;
++    }
++
+     public int getMaxSessionCount() {
+       return maxSessionCount;
+     }",Prefer a human-readable string rather than querying specific technologies. How would I indicate a session is running on BrowserStack? Or some custom thing?,py,1,1,1
+"@@ -30,7 +30,7 @@ WE_POST = r'''
+ 
+ 
+ def makeJunitXML(inFileName, outFileName):
+-	with open(inFileName, 'rt', encoding='UTF-8') as flake8In:
++	with open(inFileName, 'rt', encoding='ANSI', errors='replace') as flake8In:
+ 		errorText = flake8In.read()
+ 	if len(errorText) > 0:
+ 		# make ""with error"" xml content","@feerrenrut Do you think we might reconsider this line now that Flake8 runs in UTF-8 Mode as of #11108? `errors='replace'` is probably still a good strategy, though.",py,0,1,1
+"@@ -259,6 +259,10 @@ class ElectrumWindow(QMainWindow):
+     def load_wallet(self, wallet):
+         import electrum
+         self.wallet = wallet
++        self.blockchain = self.wallet.verifier.blockchain
++        test_height_store = self.wallet.storage.get('blockht')
++        if test_height_store and not self.network.is_connected():
++            self.blockchain.local_height = self.wallet.storage.get('blockht')
+         self.accounts_expanded = self.wallet.storage.get('accounts_expanded',{})
+         self.current_account = self.wallet.storage.get(""current_account"", None)
+ ","When loading the offline wallet, rather than somehow transporting the 20MB blockchain headers file, I stored the most recent height in the offline sync data. It reads here if it exists in the wallet, and if it is offline. This is to allow offline wallets that for some reason go online to update height via internet and not interfere. (I wasn't sure if it would)",py,1,1,1
+"@@ -46,7 +46,9 @@ public class HTMLTestResults {
+   private final HTMLSuiteResult suite;
+ 
+   private static final String HEADER = ""<html>\n"" +
+-      ""<head><style type='text/css'>\n"" +
++      ""<head>\n""+
++      ""<meta charset=\""UTF-8\"">\n""+
++      ""<style type='text/css'>\n"" +
+       ""body, table {\n"" +
+       ""    font-family: Verdana, Arial, sans-serif;\n"" +
+       ""    font-size: 12;\n"" +","Is there a recommended quote style for attributes? I see single and double here, double further down.",py,1,1,1
+"@@ -119,6 +119,7 @@ exec 2>&1
+ # Ubuntu update.
+ sudo apt-get update -y
+ sudo apt-get upgrade -y
++sudo apt-get update && sudo apt-get --assume-yes install google-cloud-sdk
+ 
+ USER_HOME=/home/ubuntu
+ ","Can we separate this change into another PR, since it's not directly related to switching to the image version? Generally speaking, it's good practice to do this separation so that any problems are easier to troubleshoot and find.",py,0,1,1
+"@@ -19,3 +19,7 @@
+ # http://numenta.org/licenses/
+ # ----------------------------------------------------------------------
+ __version__ = ""0.3.0.dev0""
++
++import os
++NUPIC_ROOT = os.environ.get('NUPIC', os.path.dirname(os.path.realpath(__file__)))
++",Have you tried get the absolute path of `__file__` and so discard $NUPIC completely?,py,1,1,1
+"@@ -32,9 +32,9 @@ import csv
+ import json
+ import os
+ import math
++from pkg_resources import resource_filename
+ 
+ from nupic.algorithms.anomaly import computeRawAnomalyScore
+-from nupic.data.datasethelpers import findDataset
+ from nupic.data.file_record_stream import FileRecordStream
+ from nupic.engine import Network
+ from nupic.encoders import MultiEncoder","nit: put blank line before pkg_resources, it is a third-party lib",py,1,1,1
+"@@ -35,15 +35,10 @@ def parse_args():
+         help='whether not to evaluate the checkpoint during training')
+     group_gpus = parser.add_mutually_exclusive_group()
+     group_gpus.add_argument(
+-        '--gpus',
++        '--gpu-id',
+         type=int,
+-        help='number of gpus to use '
+-        '(only applicable to non-distributed training)')
+-    group_gpus.add_argument(
+-        '--gpu-ids',
+-        type=int,
+-        nargs='+',
+-        help='ids of gpus to use '
++        default=0,
++        help='id of gpu to use '
+         '(only applicable to non-distributed training)')
+     parser.add_argument('--seed', type=int, default=None, help='random seed')
+     parser.add_argument(",We should add deprecation warning of --gpu-ids and --gpus to indicate users that they are deprecated and useless. We should not delete them immediately.,py,1,1,1
+"@@ -4546,6 +4546,17 @@ class DataFrameTest(ReusedSQLTestCase, SQLTestUtils):
+         finally:
+             sys.stdout = prev
+ 
++    def test_repartition(self):
++        kdf = ks.DataFrame({""age"": [5, 5, 2, 2], ""name"": [""Bob"", ""Bob"", ""Alice"", ""Alice""]})
++
++        new_kdf = kdf.spark.repartition(7)
++        self.assertEqual(new_kdf.to_spark().rdd.getNumPartitions(), 7)
++
++        kdf = kdf.set_index(""age"")
++        new_kdf = kdf.spark.repartition(5)
++        self.assertEqual(new_kdf.to_spark().rdd.getNumPartitions(), 5)
++        self.assertEqual(kdf.index.name, new_kdf.index.name)
++
+     def test_mad(self):
+         pdf = pd.DataFrame(
+             {","Shall we also test `self.assert_eq(kdf.sort_index(), new_kdf.sort_index())`?",py,1,1,1
+"@@ -1,7 +1,9 @@
+-_base_ = './faster_rcnn_r50_fpn_1x_coco.py'
++_base_ = './faster_rcnn_r50_caffe_fpn_mstrain_1x_coco.py'
+ model = dict(roi_head=dict(bbox_head=dict(num_classes=1)))
+ classes = ('person', )
+ data = dict(
+     train=dict(classes=classes),
+     val=dict(classes=classes),
+     test=dict(classes=classes))
++
++load_from = 'http://download.openmmlab.com/mmdetection/v2.0/faster_rcnn/faster_rcnn_r50_caffe_fpn_mstrain_3x_coco/faster_rcnn_r50_caffe_fpn_mstrain_3x_coco_bbox_mAP-0.398_20200504_163323-30042637.pth'  # noqa",Rename the configs to be `faster_rcnn_r50_fpn_mstrain_1x_coco-person.py`,py,1,1,1
+"@@ -0,0 +1,19 @@
++from flask import Blueprint
++from werkzeug.exceptions import NotFound
++
++
++# Blueprint to contain the view that returns 404 if API calls are made to
++# the web app instead of the api flask application
++api_404_bp = Blueprint('api_404', __name__)
++
++
++@api_404_bp.route('/1/submit_listens', methods=['GET', 'POST'])
++@api_404_bp.route('/1/user/<user_name>/listens', methods=['GET'])
++@api_404_bp.route('/2.0/', methods=['GET', 'POST'])
++@api_404_bp.route('/api/auth/', methods=['GET', 'POST'])
++def webapp_api_call(user_name=None):
++    """"""
++    This route is used to raise 404s when api calls are made to the webapp
++    instead of the api.
++    """"""
++    raise NotFound(""Incorrect address used in call to API, please use api.listenbrainz.org instead."")","The body of this message should be JSON, in the same format as other error messages sent by the API.",py,1,1,1
+"@@ -124,7 +124,7 @@ def range(start: int,
+ 
+ 
+ def read_csv(path, header='infer', names=None, usecols=None,
+-             mangle_dupe_cols=True, parse_dates=False, comment=None):
++             mangle_dupe_cols=True, parse_dates=False, comment=None, index_col=None):
+     """"""Read CSV (comma-separated) file into DataFrame.
+ 
+     Parameters",We should put the `index_col` argument betwen `names` and `usecols` to follow pandas'?,py,1,1,1
+"@@ -44,6 +44,12 @@ from luigi.cmdline_parser import CmdlineParser
+ _no_value = object()
+ 
+ 
++class ParameterVisibility(object):
++    PUBLIC = 0
++    HIDDEN = 1
++    PRIVATE = 2
++
++
+ class ParameterException(Exception):
+     """"""
+     Base exception.",You can use the enum class that's built into python. (there's a 2.7 backport we're already using),py,1,1,1
+"@@ -517,8 +517,8 @@ class VoiceSettingsDialog(SettingsDialog):
+ 		# Translators: This is a label for a setting in voice settings (an edit box to change voice pitch for capital letters; the higher the value, the pitch will be higher).
+ 		capPitchChangeLabel=wx.StaticText(self,-1,label=_(""Capital pitch change percentage""))
+ 		settingsSizer.Add(capPitchChangeLabel)
+-		self.capPitchChangeEdit=wx.TextCtrl(self,wx.NewId())
+-		self.capPitchChangeEdit.SetValue(str(config.conf[""speech""][getSynth().name][""capPitchChange""]))
++		self.capPitchChangeEdit=wx.SpinCtrl(self, min=0, max=100,
++			initial=config.conf[""speech""][getSynth().name][""capPitchChange""])
+ 		settingsSizer.Add(self.capPitchChangeEdit,border=10,flag=wx.BOTTOM)
+ 		# Translators: This is the label for a checkbox in the
+ 		# voice settings dialog.","The minimum here is -100, not 0. (The value is relative, not multiplicative.) Do these controls support negative values?",py,1,1,1
+"@@ -1,8 +1,10 @@
+ import uuid
+ import time
++import sys
+ from collections import deque
+ 
+ import param
++from unittest import SkipTest
+ import numpy as np
+ from holoviews import Dimension, NdLayout, GridSpace, Layout, NdOverlay
+ from holoviews.core.spaces import DynamicMap, HoloMap, Callable",Don't want to be too much of a stickler but imports are generally organized by stdlib then external libraries.,py,1,1,1
+"@@ -656,7 +656,13 @@ class TabbedBrowser(tabwidget.TabWidget):
+             key: mark identifier; capital indicates a global mark
+         """"""
+         # strip the fragment as it may interfere with scrolling
+-        url = self.current_url().adjusted(QUrl.RemoveFragment)
++        try:
++            url = self.current_url().adjusted(QUrl.RemoveFragment)
++        except qtutils.QtValueError:
++            # show an error only if the mark is not automatically set
++            if key != ""'"":
++                message.error(self._win_id, ""Failed to set mark: url invalid"")
++            return
+         point = self.currentWidget().page().currentFrame().scrollPosition()
+ 
+         if key.isupper():","Never use a bare `except:`, that'd catch any exception (even a typo somewhere, for example). This should be `except qtutils.QtValueError:` instead.",py,1,1,1
+"@@ -63,7 +63,7 @@ def configdata_init(monkeypatch):
+ class TestEarlyInit:
+ 
+     def test_config_py_path(self, args, init_patch, config_py_arg):
+-        config_py_arg.write('c.colors.hints.bg = ""red""\n')
++        config_py_arg.write('config.load_autoconfig()\nc.colors.hints.bg = ""red""\n')
+         configinit.early_init(args)
+         expected = 'colors.hints.bg = red'
+         assert config.instance.dump_userconfig() == expected",I'd prefer using `'\n'.join` here as well to make it a bit more readable (and consistent).,py,1,1,1
+"@@ -50,7 +50,9 @@ class SnakebiteHdfsClient(hdfs_abstract_client.HdfsFileSystem):
+     def list_path(path):
+         if isinstance(path, list) or isinstance(path, tuple):
+             return path
+-        if isinstance(path, str) or isinstance(path, unicode):
++        # TODO: Should this be:
++        # isinstance(path, (six.text_type, six.binary_type))?
++        if isinstance(path, six.string_types):
+             return [path, ]
+         return [str(path), ]
+ ",Do you know the answer to the TODO @gpoulin ?,py,0,0,1
+"@@ -49,7 +49,7 @@ class BuildTest(QuiltTestCase):
+ 
+         # Verify cache contents
+         srcpath = os.path.join(mydir, 'data/10KRows13Cols.csv')
+-        path_hash = build._path_hash(srcpath, 'csv', {})
++        path_hash = build._path_hash(srcpath, 'csv',  {'parse_dates': ['Date0']})
+         assert os.path.exists(teststore.cache_path(path_hash))
+         
+         # Build again using the cache",this works but it's super fragile; @kevinemoore can you get this info from build.yml? other unit tests will need the logic.,py,0,1,1
+"@@ -236,6 +236,7 @@ class dim(object):
+     # Unary operators
+     def __neg__(self): return dim(self, operator.neg)
+     def __not__(self): return dim(self, operator.not_)
++    def __invert__(self): return dim(self, operator.inv)
+     def __pos__(self): return dim(self, operator.pos)
+ 
+     # Binary operators",Thanks. Are there any other operators missing?,py,1,1,1
+"@@ -39,6 +39,7 @@ with open('README.rst') as fobj:
+ install_requires = [
+     'tornado>=4.0,<5',
+     'python-daemon<3.0',
++    'toml',
+ ]
+ 
+ if os.environ.get('READTHEDOCS', None) == 'True':",No version specification?,py,1,0,1
+"@@ -65,7 +65,7 @@ def safePow(a, b):
+   if b is None: return None
+   try:
+     result = math.pow(a, b)
+-  except ValueError:
++  except:
+     return None
+   return result
+ ",Would be very nice if you can preserve this part.,py,1,0,1
+"@@ -368,7 +368,7 @@ class CenterNetHead(BaseDenseHead, BBoxTestMixin):
+         if labels.numel() == 0:
+             return bboxes, labels
+ 
+-        out_bboxes, keep = batched_nms(bboxes[:, :4], bboxes[:, -1], labels,
++        out_bboxes, keep = batched_nms(bboxes[:, :4], bboxes[:, -1].contiguous(), labels,
+                                        cfg.nms_cfg)
+         out_labels = labels[keep]
+ ","To be on the safe side, it is best to add contiguous to bboxes.",py,1,1,1
+"@@ -90,8 +90,8 @@ class PipelineBuilder(object):
+                 else:
+                     api = api_class(self.global_configs,
+                                     version=api_version)
+-            except api_errors.ApiExecutionError as e:
+-                LOGGER.error('Failed to execute API %s, v=%s\n%s',
++            except api_errors.ApiInitializationError as e:
++                LOGGER.error('Failed to initialize API %s, v=%s\n%s',
+                              api_class_name, api_version, e)
+                 raise api_errors.ApiInitializationError(e)
+ ","This can just be the following, since you are re-raising the same exception now: raise",py,1,1,1
+"@@ -23,7 +23,8 @@ def main(args=None):
+ 
+     parser = argparse.ArgumentParser(description=""Kinto Command-Line ""
+                                                  ""Interface"")
+-    commands = ('init', 'start', 'migrate', 'delete-collection', 'version')
++    commands = ('init', 'start', 'migrate', 'delete-collection', 'version',
++                'rebuild-quotas')
+     subparsers = parser.add_subparsers(title='subcommands',
+                                        description='Main Kinto CLI commands',
+                                        dest='subcommand',",nitpick: we could add `rebuild-quotas` only if plugin is included?,py,1,1,1
+"@@ -1,12 +1,14 @@
+ # -*- coding: UTF-8 -*-
+-#globalCommands.py
+-#A part of NonVisual Desktop Access (NVDA)
+-#This file is covered by the GNU General Public License.
+-#See the file COPYING for more details.
+-#Copyright (C) 2006-2018 NV Access Limited, Peter Vágner, Aleksey Sadovoy, Rui Batista, Joseph Lee, Leonard de Ruijter, Derek Riemer, Babbage B.V., Davy Kager, Ethan Holliger, Łukasz Golonka
++# globalCommands.py
++# A part of NonVisual Desktop Access (NVDA)
++# This file is covered by the GNU General Public License.
++# See the file COPYING for more details.
++# Copyright (C) 2006-2020 NV Access Limited, Peter Vágner, Aleksey Sadovoy, Rui Batista, Joseph Lee, Leonard de Ruijter, Derek Riemer, Babbage B.V., Davy Kager, Ethan Holliger, Łukasz Golonka, Accessolutions, Julien Cochuyt  # noqa: E501 line too long
+ 
+ import time
+ import itertools
++from typing import Optional
++
+ import tones
+ import audioDucking
+ import touchHandler",Why not split the line?,py,1,0,1
+"@@ -26,6 +26,9 @@ class StatsAPITestCase(IntegrationTestCase):
+         sent_count = payload['count']
+         received_count = data['count']
+         self.assertEqual(sent_count, received_count)
++        sent_total_count = payload['count']
++        received_total_count = data['total_count']
++        self.assertEqual(sent_total_count, received_total_count)
+         sent_artist_list = payload['all_time']['artists']
+         received_artist_list = data['artists']
+         self.assertListEqual(sent_artist_list, received_artist_list)",`total_count` is not obvious. Can we make the name more explicit? `total_artist_count`,py,1,1,1
+"@@ -15,12 +15,14 @@
+ """"""Base GCP client which uses the discovery API.""""""
+ import logging
+ import threading
++import httplib2
++from retrying import retry
++
+ import googleapiclient
++
+ from googleapiclient import discovery
+-import httplib2
+ from oauth2client import client
+ from ratelimiter import RateLimiter
+-from retrying import retry
+ 
+ from google.cloud import forseti as forseti_security
+ from google.cloud.forseti.common.gcp_api import _supported_apis",Please alpha sort these.,py,1,1,1
+"@@ -1,17 +1,15 @@
+ import inspect
+ from functools import update_wrapper
+-from typing import TYPE_CHECKING, Callable, Generator, List, Optional, Union
++from typing import TYPE_CHECKING, Callable, Generator, List, Optional, Sequence, Union
+ 
+ from dagster import check
+ from dagster.core.definitions.sensor import RunRequest, SensorDefinition, SkipReason
+ from dagster.core.errors import DagsterInvariantViolationError
+ 
+-from ....seven import funcsigs
+-from ...decorator_utils import get_function_params
+ from ...errors import DagsterInvariantViolationError
+ from ..events import AssetKey
+ from ..graph import GraphDefinition
+-from ..pipeline import PipelineDefinition
++from ..job import JobDefinition
+ from ..sensor import AssetSensorDefinition, RunRequest, SensorDefinition, SkipReason
+ 
+ if TYPE_CHECKING:",should we asspire to remove `job` if we have `jobs` ? both isnt the worst i guess,py,1,1,1
+"@@ -97,10 +97,13 @@ class AdminDirectoryClient(_base_client.BaseClient):
+         request = members_stub.list(groupKey=group_key,
+                                     maxResults=FLAGS.max_results_admin_api)
+ 
+-        results = self._build_paged_result(
++        paged_results = self._build_paged_result(
+             request, members_stub, self.rate_limiter)
+ 
+-        return [item.get('members', []) for item in results]
++        group_members = []
++        for page in paged_results:
++            group_members.extend(page.get('members', []))
++        return group_members
+ 
+ 
+     def get_groups(self, customer_id='my_customer'):","If you're up for fixing this once, if not just open an issue, but we should write another helper method to un-bundle the results of a paged request. It'd accept just one argument, the string of the key and do what you're doing on lines 103-106",py,1,1,1
+"@@ -5,7 +5,7 @@
+         <th><%= _('Organisation') %>&nbsp;<%= paginable_sort_link('orgs.name') %></th>
+         <th><%= _('Administrator Email') %>&nbsp;<%= paginable_sort_link('orgs.contact_email') %></th>
+         <th><%= _('Organisation Type(s)') %>&nbsp;<%= paginable_sort_link('orgs.org_type') %></th>
+-        <th><%= _('Templates') %>&nbsp;<%= paginable_sort_link('orgs.updated_at') %></th>
++        <th><%= _('Templates') %></th>
+         <th class=""sorter-false""><span aria-hidden=""false"" class=""sr-only""><%= _('Actions') %></span></th>
+       </tr>
+     </thead>",good you removed this sortable field. Sorting by updated_at when the field name was Templates seems odd,rb,1,1,1
+"@@ -230,11 +230,10 @@ MESSAGE
+           def dartfmt
+             args = task[:dartfmt]
+ 
+-            if args.is_a?(String)
+-              sh.echo ""dartfmt arguments aren't supported."", ansi: :red
+-            end
+-
+-            sh.if package_direct_dependency?('dart_style'), raw: true do
++            # If specified `-dartfmt: custom` and there is a dependency on `dart_style` we
++            # will use the custom (pinned) version of dart_style to run formatting checks
++            # instead of the SDK.
++            sh.if args == 'custom' and package_direct_dependency?('dart_style'), raw: true do
+               sh.raw 'function dartfmt() { pub run dart_style:format ""$@""; }'
+             end
+ ",Uh...wouldn't `custom` be passed to the args here?,rb,1,1,1
+"@@ -28,10 +28,11 @@ Puppet::Functions.create_function(:run_task) do
+   end
+ 
+   def run_task(task_name, targets, task_args = nil)
++    task_args ||= {}
+     r = Bolt::ExecutionResult.from_bolt(
+       run_task_raw(task_name, targets, task_args)
+     )
+-    if !r.ok && task_args && task_args['_abort'] != false
++    if !r.ok && !task_args['_catch_errors']
+       raise Bolt::RunFailure.new(r, 'run_task', task_name)
+     end
+     r",task_args could still be nil.,rb,1,1,1
+"@@ -11,10 +11,14 @@ describe Bolt::WinRM do
+ 
+   let(:host) { ENV['BOLT_WINRM_HOST'] || 'localhost' }
+   let(:port) { ENV['BOLT_WINRM_PORT'] || 55985 }
++  let(:ssl_port) { ENV['BOLT_WINRM_SSL_PORT'] || 55986 }
+   let(:user) { ENV['BOLT_WINRM_USER'] || ""vagrant"" }
+   let(:password) { ENV['BOLT_WINRM_PASSWORD'] || ""vagrant"" }
+   let(:command) { ""echo $env:UserName"" }
+-  let(:winrm) { Bolt::WinRM.new(host, port, user, password) }
++  let(:config) { Bolt::Config.new(transports: { winrm: { insecure: true } }) }
++  let(:ssl_config) { Bolt::Config.new(transports: { winrm: { ca_cert: 'resources/cert.pem' } }) }
++  let(:winrm) { Bolt::WinRM.new(host, port, user, password, config: config) }
++  let(:winrm_ssl) { Bolt::WinRM.new(host, ssl_port, user, password, config: ssl_config) }
+   let(:echo_script) { <<PS }
+ foreach ($i in $args)
+ {",I guess this is an automatic mapping (i.e. I don't see the `Vagrantfile` updated to map 5986 to 55986)?,rb,1,1,1
+"@@ -0,0 +1,7 @@
++<script type=""text/javascript"">
++  analytics.track('Purchased',
++    <%= raw purchased_hash(purchase_amount, purchase_name).to_json %>
++  );
++</script>
++
++<%= render 'conversions/adwords', purchase_amount: purchase_amount %>",Does Segment.io not handle Google Adwords conversions?,rb,1,1,1
+"@@ -0,0 +1,13 @@
++# frozen_string_literal: true
++
++require_relative '../../test_helper'
++
++class TestDeprecateSpace < Test::Unit::TestCase
++  def setup
++    @tester = Faker::Space
++  end
++
++  def launch_vehicule
++    assert @tester.character.match(/\w+/)
++  end
++end",copy and   it should be `@tester.launch_vehicule.match` :),rb,1,0,0
+"@@ -1,7 +1,7 @@
+ class Trail < ActiveRecord::Base
+   extend FriendlyId
+ 
+-  validates :name, presence: true
++  validates :name, :description, presence: true
+ 
+   has_many :steps, dependent: :destroy
+   has_many :exercises, through: :steps","If we add this validation, we also probably want a migration which sets a value for existing trails. Otherwise, all existing trails will become invalid.",rb,1,1,1
+"@@ -0,0 +1,19 @@
++class NameUnnamedRedactions < ActiveRecord::Migration[5.0]
++  def self.up
++    Redaction.find_each do |redaction|
++        if redaction.title.empty?
++            redaction.title = redaction.id.to_s
++            redaction.save!
++        end
++    end
++  end
++
++  def self.down
++    Redaction.find_each do |redaction|
++        if redaction.title.eql? redaction.id.to_s
++            redaction.title = """"
++            redaction.save!
++        end
++    end
++  end
++end",Indentation should be the standard two spaces please.,rb,1,1,1
+"@@ -153,6 +153,11 @@ module Faker
+         regexify(/IT\d{2,4}\/\d{2,10}/)
+       end
+ 
++      # Get a random Russian tax number.
++      def russian_tax_number(region: nil, type: :legal)
++        inn_number(region, type)
++      end
++
+       private
+ 
+       # Mod11 functionality from https://github.com/badmanski/mod11/blob/master/lib/mod11.rb",I think we could add a formatted/unformatted keyword parameter for this method. What do you think?,rb,1,1,1
+"@@ -76,12 +76,13 @@ class ApplicationController < ActionController::Base
+ 
+   def authenticate_user!
+     if not_signed_in?
+-      flash[:error] = 'You need to sign in for access to this page.'
++      flash[:error] = ""You need to sign in for access to this page.""
+       return_to_param = make_return_to(""Previous"", request.fullpath)
+       session[:return_to] = return_to_param
+       redirect_to root_url(return_to: return_to_param)
+-    elsif session[:return_to]
+-      session.delete(:return_to)
++    elsif current_user.inactivated?
++      redirect_to root_url
++      flash[:error] = ""You are not allowed to login because your account has been inactivated. Please <a href='/feedback'>contact an administrator</a>.""
+     end
+   end
+ ",@pkarman I removed this because I wasn't sure why it was here - thoughts? Happy to re-introduce and write a test for it if we need it :),rb,0,0,1
+"@@ -11,6 +11,13 @@ class Post < ActiveRecord::Base
+ 
+   scope :by_newest, -> { order('posts.created_at desc') }
+   scope :by_unanswered, -> { joins(:topic).where(topics: { posts_count: 1 }).by_newest }
++  # DISTINCT ON is a Postgres extension to the SQL standard so it won't work on other databases.
++  scope :most_recent, lambda {
++    joins(""INNER JOIN (
++            SELECT DISTINCT ON (topic_id) topic_id, id FROM posts ORDER BY topic_id, created_at DESC
++          ) most_recent ON (most_recent.id=posts.id)"")
++  }
++  scope :open_topics, -> { joins(:topic).where(topics: { closed: false }).by_newest }
+ 
+   def body=(value)
+     super(value ? value.fix_encoding_if_invalid!.strip_tags.strip : nil)",How about renaming it to `open_topics`?,rb,1,1,1
+"@@ -44,6 +44,11 @@ module RSpec
+         end
+         self
+       end
++
++      def clear
++        @values.clear
++        self
++      end
+     end
+   end
+ end",Mind adding a spec to `set_spec.rb` for this?,rb,1,1,1
+"@@ -44,6 +44,10 @@ import java.util.List;
+  * </code>
+  */
+ public abstract class By {
++  static {
++    WebDriverException.scheduleIpHostResolving();
++  }
++
+   /**
+    * @param id The value of the ""id"" attribute to search for
+    * @return a By which locates elements by the value of the ""id"" attribute.","we shouldn't add a bunch of static initializers 'everywhere' in the code. Probably just one would be good, during the construction of the 'RemoteWebDriver' class.",rb,1,1,1
+"@@ -0,0 +1,5 @@
++package org.openqa.selenium.grid.distributor.remote;
++
++public class RemoteDistributorTest {
++
++}",Probably best not to have an empty test....,rb,1,1,1
+"@@ -0,0 +1,11 @@
++<%= form_tag(url, method: :get, remote: true, class: 'form-inline') do %>
++  <div class=""form-group"">
++    <div class=""input-group"">
++      <span class=""input-group-addon"" id=""search-addon"">
++        <span class=""glyphicon glyphicon-search"" aria-hidden=""true""></span>
++      </span>
++      <%= text_field_tag(:search, nil, class: 'form-control', 'aria-describedby': 'search-addon', 'aria-required': true) %>
++    </div>
++  </div>
++  <%= submit_tag(_('Search'), class: 'btn btn-default', style: 'margin-top: 8px;') %>
++<% end %>","We should use fontawesome here since we're using it everywhere else. `class=""fa fa-search""` should work",rb,1,1,1
+"@@ -1,6 +1,12 @@
+ # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ # SPDX - License - Identifier: Apache - 2.0
+ 
++# Purpose
++# This code example demonstrates how to set the access control list (ACL)
++# on an Amazon Simple Storage Solution (Amazon S3) bucket for the given owner.
++
++# snippet-start:[s3.s3_set_bucket_acls.rb]
++
+ require 'aws-sdk-s3'
+ 
+ # Sets the access control list (ACL) on an Amazon S3 bucket for the",Simple Storage **Service**,rb,0,0,0
+"@@ -469,6 +469,13 @@ Rails.application.routes.draw do
+     resources :license_permissions
+   end
+ 
++  namespace 'api', defaults: { format: :json } do
++    namespace 'v1' do
++      post 'unsubscribe'
++      post 'jwt'
++    end
++  end
++
+   get 'sitemap_index.xml', controller: 'sitemap', action: 'index', format: 'xml'
+   get 'sitemaps/:ctrl/:page.xml', controller: 'sitemap', action: 'show', format: 'xml'
+ ",Add a jwt and enlistment resource under the namespace v1,rb,1,1,1
+"@@ -38,12 +38,16 @@
+ <% content_for :javascript do %>
+ <script type=""text/javascript"">
+   function workshop_details(workshop) {
++    if(workshop.online) {
++      return "" Online"";
++    }
++
+     var details = [];
+     for (var s=0; s<workshop.active_sections.length; s++) {
+       details.push(workshop.active_sections[s].section.city);
+     }
+     if(details.length > 0) {
+-      return "" in "" + details.join("" and "");
++      return "" in-person in "" + details.join("" and "");
+     } else {
+       return """";
+     }","What do you think about adding an `else {` block to wrap the rest of this method, instead of using an early return guard?",rb,1,1,1
+"@@ -76,7 +76,7 @@ public class ProtocolHandshake {
+ 
+         if (result.isPresent()) {
+           Result toReturn = result.get();
+-          LOG.info(String.format(""Detected dialect: %s"", toReturn.dialect));
++          LOG.finest(String.format(""Detected dialect: %s"", toReturn.dialect));
+           return toReturn;
+         }
+       }",This is an incorrect change. The dialect spoken is an important part of the handshake and should be communicated to users.,rb,1,1,1
+"@@ -6,7 +6,7 @@
+ 
+     <%- if params[:q] and params[:search_field] and params[:search_field] != blacklight_config.default_search_field -%>
+       <li><%= t 'blacklight.search.zero_results.search_fields', :search_fields => search_field_label(params) %> - 
+-      <%= link_to t('blacklight.search.zero_results.search_everything'), url_for(params_for_search(:search_field=>blacklight_config.default_search_field.key)) %>
++      <%= link_to t('blacklight.search.zero_results.search_everything'), params_for_search(:params => params.merge(:search_field=>blacklight_config.default_search_field.key)) %>
+       </li>
+     <%- end %>
+ ",But you are passing one here.,rb,0,0,1
+"@@ -98,7 +98,8 @@ EOF
+ 
+     def generate_blacklight_marc_demo
+       if options[:marc]
+-        gem ""blacklight-marc"", ""~> 5.0""
++        blacklight_marc = String.new('blacklight-marc')
++        gem blacklight_marc, '~> 6.0'
+ 
+         Bundler.with_clean_env do
+           run ""bundle install""",Why this line?,rb,1,0,1
+"@@ -64,7 +64,7 @@ module Bolt
+              end
+ 
+       data = load_defaults(project).push(
+-        filepath: project.config_file,
++        filepath: configfile,
+         data: conf,
+         logs: logs,
+         deprecations: []","If you pass `--configfile /path/to/bolt.yaml`, we will actually load `/path/to/bolt-project.yaml` if it exists. Will this cause us to instead report that we loaded `/path/to/bolt.yaml` when we didn't?",rb,1,1,1
+"@@ -0,0 +1,14 @@
++require File.expand_path(File.dirname(__FILE__) + '/test_helper.rb')
++
++class TestFakerImage < Test::Unit::TestCase
++  def setup
++    @tester = Faker::Image
++  end
++
++  def test_urls
++    Google::Search::Image.stub :initialize, Google::Search::Image do
++      assert @tester.urls('test',1).is_a?(Array)
++    end
++  end
++
++end",How about now? @tejasbubane,rb,0,0,0
+"@@ -36,10 +36,17 @@ module Selenium
+       SOCKET_LOCK_TIMEOUT = 45
+       STOP_TIMEOUT        = 20
+ 
++      @executable = nil
++      @missing = ''
++
++      class << self
++        attr_accessor :executable, :missing_text
++      end
++
+       attr_accessor :host
+ 
+       def initialize(executable_path, port, *extra_args)
+-        @executable_path = executable_path
++        @executable_path = binary_path(executable_path)
+         @host            = Platform.localhost
+         @port            = Integer(port)
+         @extra_args      = extra_args",Is this `@missing_text` ?,rb,1,0,1
+"@@ -117,6 +117,19 @@ module Faker
+         regexify(bothify(fetch(key)))
+       end
+ 
++      def mercosur_license_plate(legacy_state_abreviation = NOT_GIVEN, state_abreviation: '')
++        key = 'vehicle.mercosur_license_plate'
++        if legacy_state_abreviation != NOT_GIVEN
++          warn_with_uplevel ""Passing `state_abreviation` with the 1st argument of `Vehicle.mercosur_license_plate` is deprecated. Use keyword argument like `Vehicle.mercosur_license_plate(state_abreviation: ...)` instead."", uplevel: 1
++          state_abreviation = legacy_state_abreviation
++        end
++        
++        return regexify(bothify(fetch(key))) if state_abreviation.empty?
++
++        key = key + '.by_state.' + state_abreviation
++        regexify(bothify(fetch(key)))
++      end
++
+       def singapore_license_plate
+         key = 'vehicle.license_plate'
+         plate_number = regexify(bothify(fetch(key)))","Not sure if the `legacy_state_abreviation` is required in this particular case, since there was no previous implementation of this method, so not including it wouldn't be a breaking change.",rb,1,1,1
+"@@ -7,6 +7,7 @@ require 'optparse'
+ module Bolt
+   class BoltOptionParser < OptionParser
+     OPTIONS = { inventory: %w[nodes targets query rerun description],
++                group: %w[nodes targets query rerun description],
+                 authentication: %w[user password private-key host-key-check ssl ssl-verify],
+                 escalation: %w[run-as sudo-password],
+                 run_context: %w[concurrency inventoryfile save-rerun],","I don't think this command will actually do anything with these options. I'd remove this, and modify the line below to not include it.",rb,1,1,1
+"@@ -22,8 +22,8 @@ var iam = new AWS.IAM({apiVersion: '2010-05-08'});
+ 
+ iam.getAccessKeyLastUsed({AccessKeyId: 'ACCESS_KEY_ID'}, function(err, data) {
+   if (err) {
+-    console.log(""Error"", err);
++    throw err;
+   } else {
+-    console.log(""Success"", data.AccessKeyLastUsed);
++    console.log(""Last Access Key used: "" + data.AccessKeyLastUsed);
+   }
+ });","I changed all the error console logs to throws, since these examples are written as command line tools. This will cause the script to properly report an error, vs exiting with a successful exit code.",rb,1,1,1
+"@@ -46,7 +46,7 @@ module RSpec
+ 
+           examples.select do |ex|
+             file_scoped_include?(ex.metadata, ids, locations) do
+-              !exclusions.include_example?(ex) && non_scoped_inclusions.include_example?(ex)
++              (exclusions.empty? || !exclusions.include_example?(ex)) && non_scoped_inclusions.include_example?(ex)
+             end
+           end
+         end",Why? (not had enough   yet   ),rb,1,0,0
+"@@ -13,6 +13,9 @@ module BrowseHelper
+     if version
+       name = t 'printable_name.with_version', :id => name, :version => object.version.to_s
+     end
++    # stop here if redacted to avoid giving away redacted version tags.
++    return name if object.redacted?
++
+     if object.tags.include? ""name:#{I18n.locale}""
+       name = t 'printable_name.with_name',  :name => object.tags[""name:#{I18n.locale}""].to_s, :id => name
+     elsif object.tags.include? 'name'","I think I'd rather have `unless object.redacted?` around the next block rather than an early return, which is generally considered bad form.",rb,1,1,1
+"@@ -11,6 +11,19 @@ class Subscription < ActiveRecord::Base
+   validates :plan_type, presence: true
+   validates :user_id, presence: true
+ 
++  def self.restarting_today
++    where.not(deactivated_on: nil).
++      where(
++        reactivated_on: nil,
++        scheduled_for_reactivation_on: Time.zone.today,
++      )
++  end
++
++  def self.restarting_in_two_days
++    where.not(deactivated_on: nil).
++      where(scheduled_for_reactivation_on: Time.zone.today + 2.days)
++  end
++
+   def self.canceled_in_last_30_days
+     canceled_within_period(30.days.ago, Time.zone.now)
+   end",Indent ) the same as the start of the line where ( is.,rb,1,1,1
+"@@ -20,7 +20,7 @@ class OrganizationDecorator < Cherry::Decorator
+ 
+   class << self
+     def select_options
+-      options = Organization.active.order('lower(name)').pluck(:name, :id)
++      options = Organization.active.select(:name, :id).order('lower(name)').map { |org| [org.name, org.id] }
+       options.unshift(['Unaffiliated', ''])
+       options.push(['Other', ''])
+     end","Is this change driven by function, style, performance or some other consideration?",rb,1,1,1
+"@@ -19,6 +19,8 @@ package org.openqa.grid.web;
+ 
+ import com.google.common.collect.Maps;
+ 
++import com.sun.org.glassfish.gmbal.ManagedObject;
++
+ import org.openqa.grid.internal.Registry;
+ import org.openqa.grid.internal.utils.GridHubConfiguration;
+ import org.openqa.grid.web.servlet.DisplayHelpServlet;",And again. The reason it's bad is that if someone uses a JDK not produced by Oracle they won't have this class.,rb,0,1,1
+"@@ -212,7 +212,14 @@ module Blacklight
+     end
+ 
+     def search_builder_class
+-      super || Blacklight::Solr::SearchBuilder
++      super || locate_search_builder_class
++    end
++
++    def locate_search_builder_class
++      ::SearchBuilder
++    rescue NameError
++      Deprecation.warn(Configuration, ""Your application is missing the SearchBuilder. Have you run `rails generate blacklight:search_builder`? Falling back to Blacklight::Solr::SearchBuilder"")
++      Blacklight::Solr::SearchBuilder
+     end
+ 
+     def default_per_page",Do we really need to deprecation `Blacklight::Solr::SearchBuilder`? It seems like it works fine as-is for common uses..,rb,1,1,1
+"@@ -0,0 +1,19 @@
++class ConvertAttachmentToPaperclip < ActiveRecord::Migration
++  def self.up
++    change_table :attachments do |attachment|
++      attachment.rename :filename, :attachment_file_name
++      attachment.rename :size, :attachment_file_size
++      attachment.rename :content_type, :attachment_content_type
++      attachment.datetime :attachment_updated_at 
++
++      # Removing child thumbnails as its not required for paperclip 
++      Attachment.delete_all(""parent_id is not null"")
++
++      attachment.remove :parent_id, :thumbnail, :width, :height, :is_default
++    end
++  end
++
++  def self.down
++    raise ActiveRecord::IrreversibleMigration, ""Cannot recover deleted data""
++  end
++end","This was a change from the `change` method to `self.up` and `self.down` with the `IrreversibleMigration`, isn't it? I think we missed the restriction that we do not want any migrations in the ohloh-ui repository: they all have to be in the ohloh repository for tracking. That said; we would not be able to apply this migration until we are ready to deploy PURR in to production since it would break the `attachment` model. However, we would want to run this migration every Monday after successful restoration of the production database into ohloh-qa-db.",rb,1,1,0
+"@@ -187,6 +187,16 @@ describe Blacklight::SearchBuilder do
+     end
+   end
+ 
++  describe ""#facet"" do
++    it ""should be nil if no value is set"" do
++      expect(subject.facet).to be_nil
++    end
++
++    it ""should set facet value"" do
++      expect(subject.facet('format').facet).to eq 'format'
++    end
++  end
++
+   describe ""#search_field"" do
+     it ""should use the requested search field"" do
+       blacklight_config.add_search_field 'x'",Prefer double-quoted strings unless you need single quotes to avoid extra backslashes for escaping.,rb,1,1,1
+"@@ -1,9 +1,12 @@
+ # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ # SPDX - License - Identifier: Apache - 2.0
+ 
++# Purpose
+ # This code example demonstrates how to use an RSA public key to
+ # encrypt content and then upload that encrypted content
+-# to an Amazon S3 bucket.
++# to an Amazon Simple Storage Solution (Amazon S3) bucket.
++
++# snippet-start:[s3.ruby.s3_add_cspk_encrypt_item]
+ 
+ require 'aws-sdk-s3'
+ require 'openssl'",Simple Storage **Service**,rb,0,0,0
+"@@ -1,9 +1,10 @@
+ <figure class=""tile weekly-iteration <%= topic_slugs(video) %>"">
+   <%= link_to video, title: video.name do %>
+-    <%= render video.teachers %>
+-    <h2>Weekly Iteration</h2>
+     <h1><%= video.name %></h1>
+-    <h3><%= teacher_names(video.teachers) %></h3>
+-    <p class=""description""><%= truncate_html(format_markdown(video.notes)) %></p>
++    <%= render video.teachers %>
++    <h3 class=""teacher-names""><%= teacher_names(video.teachers) %></h3>
++    <p class=""description"">
++      <%= truncate_html(video.summary_or_notes, length: 250) %>
++    </p>
+   <% end %>
+ </figure>","I see `video.summary || video.notes` being used in more than one place, which suggests it might be business logic. How about `video.summary_or_notes`, or `video.description`?",rb,1,1,1
+"@@ -16,6 +16,11 @@
+     <span class=""divider"">
+       <h4 class=""text"">Video</h4>
+     </span>
++
++    <% if @video.trail.present? %>
++      <%= render ""trails/progress"", trail: @video.trail %>
++    <% end %>
++
+     <%= render @video.preview, name: @video.name %>
+ 
+     <section class='video-notes'>","I couldn't get this working locally, so it probably looks rough around the edges",rb,1,1,1
+"@@ -36,7 +36,6 @@
+                     plan: nil,
+                     phase: phase,
+                     readonly: true,
+-                    question_guidance: {},
+                     edit: false,
+                     guidance_groups: [],
+                     base_template_org: template.base_org,",Removed unused variable.,rb,1,1,1
+"@@ -63,6 +63,17 @@ module Beaker
+         raise ""Unable to create OpenStack Network instance (api_key: #{@options[:openstack_api_key]}, username: #{@options[:openstack_username]}, auth_url: #{@options[:openstack_auth_url]}, tenant: #{@options[:openstack_tenant]})""
+       end
+ 
++      # Validate openstack_volume_support setting value, reset to boolean if passed via ENV value string
++      if not @options[:openstack_volume_support].is_a?(TrueClass) || @options[:openstack_volume_support].is_a?(FalseClass)
++        if @options[:openstack_volume_support].match(/\btrue\b/i)
++          @options[:openstack_volume_support] = true
++        elsif @options[:openstack_volume_support].match(/\bfalse\b/i)
++          @options[:openstack_volume_support] = false
++        else
++          raise ""Invalid value provided for CONFIG setting openstack_volume_support, current value #{@options[:openstack_volume_support]}""
++        end
++      end
++
+     end
+ 
+     #Provided a flavor name return the OpenStack id for that flavor","@ipcrm this seems like an awful lot of work for what you're trying to get at. Is there some use case where a string or something like that must be passed in, so you can't just rely on this being of type `TrueClass` or `FalseClass`? We would prefer to rely on people setting the yaml correctly and failing on the case when people have set the wrong type for these. That keeps the code here simple, and in places like hypervisors or parsers, it's not a lot of wasted time to fail since things are just getting started. also, it seems to be the case that if someone passed in a `FalseClass` `false` value, this wouldn't set the `@options[:openstack_volume_support]` value correctly, would it? I would imagine the outer if statement would need an else case to take care of that, no?",rb,0,1,0
+"@@ -190,6 +190,9 @@ class Purchase < ActiveRecord::Base
+       full_price = purchaseable.send(:""#{variant}_price"")
+       if coupon
+         coupon.apply(full_price)
++      elsif stripe_coupon_id.present?
++        subscription_coupon = SubscriptionCoupon.new(stripe_coupon_id)
++        subscription_coupon.apply(full_price)
+       else
+         full_price
+       end","After doing the Prime launch, I think refactoring `Purchase` would a good way to spend time while we collect post-launch data. Getting this `if` statement out using dependency injection would help remove some complexity.",rb,1,1,1
+"@@ -4,12 +4,11 @@ module Ncr
+     MAX_UPLOADS_ON_NEW = 10
+ 
+     def new
+-      @approver_email = self.suggested_approver_email
++      @model_instance.approving_official_email = self.suggested_approver_email
+       super
+     end
+ 
+     def create
+-      @approver_email = params[:approver_email]
+       super
+     end
+ ",I tend to use `self` for class methods only - thoughts on just using `suggested_approver_email` here?,rb,1,1,1
+"@@ -10,4 +10,9 @@ module FeatureSpecHelper
+     setup_mock_auth(:myusa, user)
+     visit '/auth/myusa'
+   end
++
++  def focus_field(field_id)
++    execute_script ""document.getElementById('#{field_id}').scrollIntoView()""
++    execute_script ""$('##{field_id}').focus()""
++  end
+ end","since we'er only using this method once right now, I'd suggest putting it in the spec file where it is being used. Easier to check it out that way!",rb,1,1,1
+"@@ -4,18 +4,6 @@
+     <h1 id=""project_title"">The Communicart for Common Acquisition Platform</h1>
+   </div>
+   <div class=""home-main-body"">
+-        <% unless signed_in? %>
+-        <div class=""lightbox"">
+-            <div class=""needs-auth"">
+-              <h3>Please sign in</h3>
+-              <p>In order to view this page, you'll need to sign in with a MyUSA account.</p>
+-              <link href='//fonts.googleapis.com/css?family=Open+Sans' rel='stylesheet' type='text/css'>
+-              <link href='//s3.amazonaws.com/myusa-static/button.min.css' rel='stylesheet' type='text/css'>
+-              <%= link_to 'Connect with MyUSA', ""/auth/myusa"", :class => 'btn btn-social btn-myusa' %>
+-            </div>
+-        </div>
+-        <% end %>
+-
+       <div class=""row"">
+         <div class=""col-sm-12"">
+           <h2 id=""project_tagline"">&quot;P-Card holders deserve easy, modern, automated management of their shopping carts.&quot;</h2>",Can we get rid of the lightbox JS/CSS if we're not using it?,rb,1,1,1
+"@@ -37,11 +37,10 @@ class Proposal < ActiveRecord::Base
+   visitable # Used to track user visit associated with processed proposal
+ 
+   has_many :steps
+-  has_many :individual_steps, ->{ individual }, class_name: ""Steps::Individual""
+   has_many :approval_steps, class_name: ""Steps::Approval""
+   has_many :purchase_steps, class_name: ""Steps::Purchase""
+-  has_many :completers, through: :individual_steps, source: :completer
+-  has_many :api_tokens, through: :individual_steps
++  has_many :completers, through: :steps, source: :completer
++  has_many :api_tokens, through: :steps
+   has_many :attachments, dependent: :destroy
+   has_many :comments, -> { order(created_at: :desc) }, dependent: :destroy
+ ",does this need a scope to `individual` -- the parent (root) step will never have a completer.,rb,1,1,1
+"@@ -626,6 +626,8 @@ context 'Substitutions' do
+       assert_equal %q{<a href=""mailto:author+website@4fs.no"">author+website@4fs.no</a>}, para.sub_macros(para.source)
+       para = block_from_string('john@domain.uk.co')
+       assert_equal %q{<a href=""mailto:john@domain.uk.co"">john@domain.uk.co</a>}, para.sub_macros(para.source)
++      para = block_from_string('bert&ernie@sesamestreet.com')
++      assert_equal %q{<a href=""mailto:bert&amp;ernie@sesamestreet.com"">bert&amp;ernie@sesamestreet.com</a>}, para.apply_subs(para.source)
+     end
+ 
+     test 'should ignore escaped inline email address' do",For a second I read Bernie! Feel the Bern,rb,0,0,0
+"@@ -4,10 +4,9 @@
+     <!-- if the user has projects -->
+     <p>
+       <% if @plans.count > 0 %>
+-        <%= _('The table below lists the plans that you have created, and any that have been shared with you by others.') %><br />
+-        <%= _('These can be edited, shared, exported or deleted at anytime.')%>
++        <%= _('The table below lists the plans that you have created, and that have been shared with you by others. You can edit, share, download, make a copy, or remove these plans at any time.')%>
+       <% else %>
+-        <strong><%= _(""Welcome."") %></strong><br />
++        <strong><%= _(""Welcome"") %></strong><br />
+         <%= _(""You are now ready to create your first DMP."") %><br />
+         <%= _(""Click the 'Create plan' button below to begin."")%>
+       <% end %>",not sure when this got merged but we should get the habit of using length instead of count to avoid an extra query,rb,1,1,1
+"@@ -8,9 +8,17 @@ class TemplatePolicy < ApplicationPolicy
+   end
+   
+   def index?
+-    user.can_super_admin? || user.can_modify_templates?
++    user.can_super_admin?
+   end
+ 
++  def organisational?
++    user.can_modify_templates?
++  end
++  
++  def customisable?
++    user.can_modify_templates?
++  end
++  
+   def new?
+     user.can_super_admin? || user.can_modify_templates?
+   end",org_admins should not see index page?,rb,1,1,1
+"@@ -22,7 +22,7 @@ feature 'Visitor updates password' do
+     visit_password_reset_page_for user
+     change_password_to ''
+ 
+-    page.should have_content I18n.t('flashes.failure_after_update')
++    expect(page).to have_content I18n.t('flashes.failure_after_update')
+     user_should_be_signed_out
+   end
+ ",Prefer double-quoted strings unless you need single quotes to avoid extra backslashes for escaping.,rb,1,1,1
+"@@ -37,6 +37,12 @@ module Selenium
+         def bridge_class
+           Bridge
+         end
++
++        def print_page(**options)
++          options[:page_ranges] &&= Array(options[:page_ranges])
++
++          bridge.print_page(options)
++        end
+       end # Driver
+     end # Firefox
+   end # WebDriver",Same here. and all others.,rb,0,0,0
+"@@ -520,6 +520,12 @@ webdriver.WebDriver.prototype.call = function(fn, opt_scope, var_args) {
+  * Schedules a command to wait for a condition to hold, as defined by some
+  * user supplied function. If any errors occur while evaluating the wait, they
+  * will be allowed to propagate.
++ *
++ * <p>In the event a condition returns a Promise, the polling loop will wait 
++ * for it to be resolved and use the resolved value for evaluating whether the
++ * condition has been satisfied. The resolution time for a promise is factored
++ * into whether a wait has timed out.
++ *
+  * @param {function():boolean} fn The function to evaluate as a wait condition.
+  * @param {number} timeout How long to wait for the condition to be true.
+  * @param {string=} opt_message An optional message to use if the wait times",Will you link to {!webdriver.promise.Promise} here?,rb,1,1,1

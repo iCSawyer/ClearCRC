@@ -1,0 +1,2940 @@
+patch,msg,lang,relevance,informativeness,expression
+"@@ -8,14 +8,15 @@ import org.mozilla.vrbrowser.BuildConfig;
+ 
+ public class DeviceType {
+     // These values need to match those in Device.h
+-    @IntDef(value = { Unknown, OculusGo, OculusQuest, ViveFocusPlus, PicoNeo2, PicoG2 })
++    @IntDef(value = { Unknown, OculusGo, OculusQuest, ViveFocus, ViveFocusPlus, PicoNeo2, PicoG2 })
+     public @interface Type {}
+     public static final int Unknown = 0;
+     public static final int OculusGo = 1;
+     public static final int OculusQuest = 2;
+-    public static final int ViveFocusPlus = 3;
+-    public static final int PicoNeo2 = 4;
+-    public static final int PicoG2 = 5;
++    public static final int ViveFocus = 3;
++    public static final int ViveFocusPlus = 4;
++    public static final int PicoNeo2 = 6;
++    public static final int PicoG2 = 7;
+ 
+     private static @Type int mType = Unknown;
+ ",Looks like PicoNeo2 should be 6 and PicoGaze should be 5?,java,1,1,1
+"@@ -44,7 +44,7 @@ public class NodeStatus {
+   public NodeStatus(
+       NodeId nodeId,
+       URI externalUri,
+-      int maxSessionCount,
++      Integer maxSessionCount,
+       Set<Slot> slots,
+       Availability availability) {
+     this.nodeId = Require.nonNull(""Node id"", nodeId);",This change shouldn't be necessary for this PR. Please remove it.,java,1,1,1
+"@@ -494,11 +494,10 @@ public final class HashSet<T> implements Set<T>, Serializable {
+             final HashSet<T> set = (HashSet<T>) elements;
+             return set;
+         }
+-        final HashArrayMappedTrie<T, T> that = addAll(tree, elements);
+-        if (that.size() == tree.size()) {
++        if (Collections.isEmpty(elements) || this.equals(elements)){
+             return this;
+         } else {
+-            return new HashSet<>(that);
++            return new HashSet<>(addAll(tree, elements));
+         }
+     }
+ ",The new way is only better when this HashSet and the elements are equal but it adds an overhead for all other cases. Please restore the previous version.,java,1,1,1
+"@@ -95,6 +95,8 @@ class visibility_of(object):
+ 
+ 
+ def _element_if_visible(element, visibility=True):
++    if isinstance(element, str) or isinstance(element, dict):
++           raise StaleElementReferenceException(""Invalid locator"")
+     return element if element.is_displayed() == visibility else False
+ 
+ ",This is not the right exception class. There is an InvalidSelectorException class that covers bad locators.,java,1,1,1
+"@@ -539,7 +539,10 @@ class WebElement(object):
+     @property
+     def rect(self):
+         """"""A dictionary with the size and location of the element.""""""
+-        return self._execute(Command.GET_ELEMENT_RECT)['value']
++        if self._w3c:
++            return self._execute(Command.GET_ELEMENT_RECT)['value']
++        else:
++            return self.size, self.location
+ 
+     @property
+     def screenshot_as_base64(self):",This would return a tuple of two dictionaries. You need to combine them and return a dictionary,java,1,1,1
+"@@ -30,14 +30,14 @@ import org.apache.commons.dbutils.ResultSetHandler;
+  */
+ public interface DatabaseTransOperator {
+ 
+-
+   /**
+    * returns the last id from a previous insert statement.
+    * Note that last insert and this operation should use the same connection.
+    *
+    * @return the last inserted id in mysql per connection.
++   * @throws SQLException
+    */
+-  long  getLastInsertId();
++  long getLastInsertId() throws SQLException;
+ 
+   /**
+    *",Curious: What is the difference between `DatabaseOperator` and `DatabaseTransOperator`?,java,0,0,1
+"@@ -589,6 +589,8 @@ public class JsonRpcHttpService {
+               token,
+               user -> handleJsonBatchRequest(routingContext, array, user));
+         }
++      } catch (final NullPointerException ex) {
++        handleJsonRpcError(routingContext, null, JsonRpcError.PARSE_ERROR);
+       } catch (final DecodeException ex) {
+         handleJsonRpcError(routingContext, null, JsonRpcError.PARSE_ERROR);
+       }",Is there a more appropriate error we can give that's related to incorrect request header?,java,1,1,1
+"@@ -98,9 +98,9 @@ final class ClassStats implements ClassMirror {
+     @Override
+     public boolean hasMatchingOpSig(String name, JavaOperationSigMask mask) {
+         // Indexing on signatures optimises this type of request
+-        for (JavaOperationSignature sig : operations.keySet()) {
+-            if (mask.covers(sig)) {
+-                if (operations.get(sig).contains(name)) {
++        for (Entry<JavaOperationSignature, Set<String>> entry : operations.entrySet()) {
++            if (mask.covers(entry.getKey())) {
++                if (operations.get(entry.getKey()).contains(name)) {
+                     return true;
+                 }
+             }","This is wrong, should be `entry.getValue()`",java,1,1,1
+"@@ -191,11 +191,11 @@ public class OpenTelemetryAcceptanceTest extends AcceptanceTestBase {
+   @Test
+   public void traceReportingWithTraceId() {
+ 
++    OkHttpClient okClient = new OkHttpClient();
+     WaitUtils.waitFor(
+         30,
+         () -> {
+           // call the json RPC endpoint to generate a trace - with trace metadata of our own
+-          OkHttpClient okClient = new OkHttpClient();
+           Configuration config =
+               new Configuration(""okhttp"")
+                   .withSampler(",moved this outside the wait so the connection gets reused,java,1,1,1
+"@@ -37,6 +37,7 @@ import org.apache.http.impl.client.HttpClients;
+ import org.apache.http.message.BasicHeader;
+ import org.apache.http.util.EntityUtils;
+ import org.camunda.bpm.client.interceptor.impl.RequestInterceptorHandler;
++import org.camunda.bpm.client.listener.ClientInteractionListener;
+ import org.camunda.commons.utils.IoUtil;
+ 
+ import com.fasterxml.jackson.core.JsonParseException;","This is not needed here anymore, right?",java,1,1,1
+"@@ -162,7 +162,7 @@ public class CloneVisitor implements GenericVisitor<Visitable, Object> {
+ 	public Visitable visit(AnnotationMemberDeclaration _n, Object _arg) {
+ 		NodeList<AnnotationExpr> annotations = cloneList(_n.getAnnotations(), _arg);
+ 		Type<?> type_ = cloneNode(_n.getType(), _arg);
+-		Expression defaultValue = cloneNode(_n.getDefaultValue(), _arg);
++		Expression defaultValue = cloneNode(_n.getDefaultValue().orElse(null), _arg);
+ 		Comment comment = cloneNode(_n.getComment(), _arg);
+ 
+ 		AnnotationMemberDeclaration r = new AnnotationMemberDeclaration(","Consider making an optional-specific ""cloneNode"" for this",java,1,1,1
+"@@ -113,7 +113,7 @@ public class UserAccount {
+ 	 * @param thumbnailUrl Thumbnail URL.
+ 	 * @param additionalOauthValues Additional OAuth values.
+ 	 */
+-	public UserAccount(String authToken, String refreshToken,
++	UserAccount(String authToken, String refreshToken,
+ 					   String loginServer, String idUrl, String instanceServer,
+ 					   String orgId, String userId, String username, String accountName,
+ 					   String communityId, String communityUrl, String firstName, String lastName,",Package level access to ensure consumers use the `Builder` going forward.,java,1,1,1
+"@@ -883,6 +883,17 @@ public class ExecutorServlet extends LoginAbstractAzkabanServlet {
+     final String projectName = getParam(req, ""project"");
+     final String flowId = getParam(req, ""flow"");
+ 
++    // check proxy
++    final  Map<String,String> props = getParamGroup(req, ""flowOverride"");
++    if (props != null){
++      for (String key : props.keySet()){
++         if (""user.to.proxy"".equals(key) && !userManager.validateProxyUser(props.get(key), user)){
++              ret.put(""error"", String.format(""User %s can not act as proxy for %s"", user.getUserId(), props.get(key)));
++              return;
++            }
++          }
++    }
++
+     final Project project =
+         getProjectAjaxByPermission(ret, projectName, user, Type.EXECUTE);
+     if (project == null) {","Hi @sthbig , I believe we have this check when job starts to run. What's the advantage having this check here?",java,0,1,1
+"@@ -40,6 +40,10 @@ public class RestTemplateCopyHeaderFilter implements HttpClientFilter {
+ 
+     httpHeaders.forEach((key, values) -> {
+       for (String value : values) {
++        // null args should not be set to requestEx to avoid NullPointerException in Netty.
++        if (null == value) {
++          continue;
++        }
+         requestEx.addHeader(key, value);
+       }
+     });",Please do some debug log to help the user tracing the setting issue.,java,1,1,1
+"@@ -66,7 +66,6 @@ public class VariableSpeedDialog {
+                 Log.e(TAG, Log.getStackTraceString(e));
+             }
+         });
+-        builder.forceStacking(true);
+         MaterialDialog dialog = builder.show();
+         if (Build.VERSION.SDK_INT < 16) {
+             View pos = dialog.getActionButton(DialogAction.POSITIVE);",This method was removed by newer lib,java,1,1,1
+"@@ -72,8 +72,12 @@ public class DebugOperationTracer implements OperationTracer {
+               memory,
+               storage,
+               frame.getRevertReason(),
+-              maybeRefunds));
++              maybeRefunds,
++              frame.isMemoryWritten(),
++              Optional.ofNullable(frame.getCode()),
++              frame.getCurrentOperation().getStackItemsProduced()));
+     }
++    frame.setMemoryWritten(false);
+   }
+ 
+   private Optional<Map<UInt256, UInt256>> captureStorage(final MessageFrame frame) {",This feels messy - looks like you're using the frame to capture op-level state changes?,java,1,0,1
+"@@ -371,7 +371,7 @@ public class Dictionary {
+         fullStrip = true;
+       } else if (""LANG"".equals(firstWord)) {
+         language = singleArgument(reader, line);
+-        alternateCasing = ""tr_TR"".equals(language) || ""az_AZ"".equals(language);
++        alternateCasing = language.startsWith(""tr"") || language.startsWith(""az"");
+       } else if (""BREAK"".equals(firstWord)) {
+         breaks = parseBreaks(reader, line);
+       } else if (""FORBIDDENWORD"".equals(firstWord)) {",Hmm... I didn't check but can we use Locale to parse it properly to extract the language from country variant?,java,1,1,1
+"@@ -115,6 +115,7 @@ public class DOIDataCiteServiceBean extends AbstractIdServiceBean {
+      * @param dataset the Dataset whose metadata needs to be modified
+      * @param metadata the new metadata for the Dataset
+      * @return the Dataset identifier, or null if the modification failed
++     * @throws java.lang.Exception
+      */
+     @Override
+     public String modifyIdentifier(Dataset dataset, HashMap<String, String> metadata) throws Exception {","When adding a `@throws`, I would suggest to add a situation in which the exception is thrown.",java,0,1,1
+"@@ -62,7 +62,7 @@ public class TopLevelJoinQuery extends JoinQuery {
+ 
+     final SolrIndexSearcher solrSearcher = (SolrIndexSearcher) searcher;
+     final JoinQueryWeight weight = new JoinQueryWeight(solrSearcher, ScoreMode.COMPLETE_NO_SCORES, 1.0f);
+-    final SolrIndexSearcher fromSearcher = weight.fromSearcher;
++    final SolrIndexSearcher fromSearcher = weight.toSearcher; // fromIndex isn't specified, so this has to be toSearcher
+     final SolrIndexSearcher toSearcher = weight.toSearcher;
+ 
+     try {",but what if `fromIndex` is specified?,java,1,0,1
+"@@ -307,6 +307,10 @@ public class SearchIncludeFragment implements java.io.Serializable {
+         String allTypesFilterQuery = SearchFields.TYPE + "":(dataverses OR datasets OR files)"";
+         filterQueriesFinalAllTypes.add(allTypesFilterQuery);
+ 
++        if (page == 0) {
++            logger.info(""Variable 'page' was zero. Changing it one. What does this have to do with upgrading from Glassfish 4.1 to Payara 5?"");
++            page = 1;
++        }
+         int paginationStart = (page - 1) * paginationGuiRows;
+         /**
+          * @todo",@pdurbin the log message makes me think we don't know why this is here? Can we find out if this is needed and why? I'd rather be sure of why we're adding in logic than just logging a \_()_/,java,0,1,1
+"@@ -100,5 +100,8 @@ public interface PrivacyController {
+ 
+   PrivateTransactionSimulator getTransactionSimulator();
+ 
+-  Optional<Hash> getBlockHashByBlockNumber(Optional<Long> blockNumber);
++  Optional<Hash> getBlockHashByBlockNumber(final Long blockNumber);
++
++  Optional<Hash> getStateRootByBlockNumber(
++      final String privacyGroupId, final String enclavePublicKey, final long blockNumber);
+ }",Do we need to expose this method in this interface? Isn't it used internally? I recon we could just find the blockhash from the number inside `getStateRootByBlockNumber()` method.,java,1,1,1
+"@@ -32,10 +32,6 @@ public interface Parser {
+      */
+     TokenManager getTokenManager(String fileName, Reader source);
+ 
+-    /**
+-     * Indicates if this parser can actual parse, or if it can only tokenize.
+-     */
+-    boolean canParse();
+ 
+     /**
+      * Parse source code and return the root node of the AST.",we also need to deprecate `Parser::canParse()` on master,java,1,1,1
+"@@ -30,6 +30,8 @@ public enum Status {
+   SUCCEEDED(50),
+   KILLING(55),
+   KILLED(60),
++  // EXECUTION_STOPPED refers to a terminating flow status due to crashed executor/container
++  EXECUTION_STOPPED(65),
+   FAILED(70),
+   FAILED_FINISHING(80),
+   SKIPPED(90),",terminal flow status?,java,1,1,0
+"@@ -17,12 +17,12 @@ import java.io.IOException;
+ 
+ import static org.junit.Assert.assertEquals;
+ 
+-public class Issue1485 {
++public class Issue1485 extends AbstractTest {
+ 
+     @Test
+     public void issue1485withoutSpecifyingJARs() throws IOException {
+-        File dir = new File(""src/test/resources/issue1485"");
+-        File file = new File(""src/test/resources/issue1485/Complex.java"");
++        File dir = adaptPath(""src/test/resources/issue1485"").toFile();
++        File file = adaptPath(""src/test/resources/issue1485/Complex.java"").toFile();
+ 
+         CombinedTypeSolver typeSolver = new CombinedTypeSolver();
+         typeSolver.add(new ReflectionTypeSolver());",Try slowly refactoring things from File to Path.,java,1,1,1
+"@@ -105,8 +105,7 @@ public class RegionStoreClient extends AbstractGRPCClient<TikvBlockingStub, Tikv
+   // lockResolverClient, after implements the
+   // write implementation of tispark, we can change
+   // it to private
+-  @VisibleForTesting
+-  public final LockResolverClient lockResolverClient;
++  @VisibleForTesting public final LockResolverClient lockResolverClient;
+   private TikvBlockingStub blockingStub;
+   private TikvStub asyncStub;
+ ",please undo this change,java,1,0,1
+"@@ -1924,7 +1924,10 @@ describe('Change Streams', function () {
+     });
+ 
+     it('when invoked using eventEmitter API', {
+-      metadata: { requires: { topology: 'replicaset', mongodb: '>=3.6' } },
++      metadata: {
++        requires: { topology: 'replicaset', mongodb: '>=3.6' },
++        sessions: { skipLeakTests: true }
++      },
+       test: function (done) {
+         let closed = false;
+         const close = _err => {","Note, this test was leaking a session for me locally. Looks like this is because the client can close in the `afterEach` hook before the `changeStream.close` completes. This seems acceptable, so I skipped the leak checker on this test.",js,1,1,1
+"@@ -200,7 +200,7 @@ public class JsonHttpRemoteConfig {
+     }
+   }
+ 
+-  private UrlMapper getUrlMapper(String method) {
++  protected UrlMapper getUrlMapper(String method) {
+     if (""DELETE"".equals(method)) {
+       return deleteMapper;
+     } else if (""GET"".equals(method)) {","You don't need to expose this method to do what you want. There are already public addNewGetMapping, addNewPostMapping, and addNewDeleteMapping methods.",js,1,1,1
+"@@ -123,6 +123,18 @@ SchemaArray.prototype.applyGetters = function (value, scope) {
+ 
+ SchemaArray.prototype.cast = function (value, doc, init) {
+   if (Array.isArray(value)) {
++
++    if (!value.length) {
++      var indexes = doc.schema.indexedPaths();
++
++      for (var i = 0, l = indexes.length; i < l; ++i) {
++        var pathIndex = indexes[i][0][this.path];
++        if ('2dsphere' === pathIndex || '2d' === pathIndex) {
++          return;
++        }
++      }
++    }
++
+     if (!(value instanceof MongooseArray)) {
+       value = new MongooseArray(value, this.path, doc);
+     }",we could go even farther and cache this too to avoid the loop.,js,1,1,1
+"@@ -111,7 +111,7 @@ export function getDomSibling(vnode, childIndex) {
+ 			// Since updateParentDomPointers keeps _dom pointer correct,
+ 			// we can rely on _dom to tell us if this subtree contains a
+ 			// rendered DOM node, and what the first rendered DOM node is
+-			return sibling._dom;
++			return sibling._component ? sibling._component.base : sibling._dom;
+ 		}
+ 	}
+ ","Hi! (Popping in from vacation   for a moment  . I have limited internet so I'll be away, so don't wait for me) My thinking when playing with this method last was that `_dom` was the source of truth and that `c.base` was just a reflection of that value (perhaps one day it is a getter property). Is there a situation where `v._component.base != v._dom`? Perhaps we should fix the code that updates `c.base` and not `v._dom` (assuming my understanding is anywhere near close to meaningful  )?",js,1,1,0
+"@@ -46,7 +46,9 @@ public class HTMLTestResults {
+   private final HTMLSuiteResult suite;
+ 
+   private static final String HEADER = ""<html>\n"" +
+-      ""<head><style type='text/css'>\n"" +
++      ""<head>\n""+
++      ""<meta charset=\""UTF-8\"">\n""+
++      ""<style type='text/css'>\n"" +
+       ""body, table {\n"" +
+       ""    font-family: Verdana, Arial, sans-serif;\n"" +
+       ""    font-size: 12;\n"" +","Is there a recommended quote style for attributes? I see single and double here, double further down.",js,1,1,1
+"@@ -37,9 +37,13 @@ function query(server, ns, cmd, cursorState, options, callback) {
+ 
+   // If we have explain, we need to rewrite the find command
+   // to wrap it in the explain command
+-  const explain = Explain.fromOptions(options);
+-  if (explain) {
+-    findCmd = decorateWithExplain(findCmd, explain);
++  try {
++    const explain = Explain.fromOptions(options);
++    if (explain) {
++      findCmd = decorateWithExplain(findCmd, explain);
++    }
++  } catch (err) {
++    return callback(err);
+   }
+ 
+   // NOTE: This actually modifies the passed in cmd, and our code _depends_ on this","NODE-3377 Totally expanding scope here but we're validating too strictly here, this could be a quick fix that goes in this PR, we just need to assert string or boolean.",js,0,1,1
+"@@ -119,10 +119,10 @@ public class Standalone implements CliCommand {
+       LoggingOptions loggingOptions = new LoggingOptions(config);
+       loggingOptions.configureLogging();
+ 
+-      LOG.info(""Logging configured."");
++      LOG.finest(""Logging configured."");
+ 
+       DistributedTracer tracer = loggingOptions.getTracer();
+-      LOG.info(""Using tracer: "" + tracer);
++      LOG.finest(""Using tracer: "" + tracer);
+       GlobalDistributedTracer.setInstance(tracer);
+ 
+       EventBusConfig events = new EventBusConfig(config);","Again. This is part of the start up of the server, and the diagnostics are helpful.",js,0,1,1
+"@@ -1,2 +1,9 @@
+-/** Virtual DOM Node */
++/**
++ * Virtual DOM Node
++ * @typedef VNode
++ * @property {string | Function} nodeName The string of the DOM node to create or Component constructor to render
++ * @property {Array<VNode | string>} children The children of node
++ * @property {string | number | undefined} key The key used to identify this VNode in a list
++ * @property {object} attributes The properties of this VNode
++ */
+ export function VNode() {}",We should use either `undefined` or `void` throughout all our docs,js,1,1,1
+"@@ -1731,5 +1731,15 @@ $(document).ready(function() {
+             app.addMenu(""management"", {code: ""plugins"", url: ""#/manage/plugins"", text: ""plugins.title"", icon: '<div class=""logo-icon fa fa-puzzle-piece""></div>', priority: 30});
+         }
+         app.addMenu(""management"", {code: ""configurations"", url: ""#/manage/configurations"", text: ""plugins.configs"", icon: '<div class=""logo-icon ion-android-options""></div>', priority: 40});
++
++        var isCurrentHostnameIP = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(window.location.hostname);
++        if (!isCurrentHostnameIP && countlyGlobal.domain === """") {
++            countlyPlugins.updateConfigs({""api"": {""domain"": window.location.hostname}}, function(err) {
++                if (err) {
++                    // throw err
++                    console.log('An error has occurred: ', err);
++                }
++            });
++        }
+     }
+ });",Eslint was complaining about this line. Normally we do it like that: 1)If error happens after user action - we show styled notification. 2)If it happens in background - then we just ignore it silently. (So do not log it in console),js,1,1,1
+"@@ -21,7 +21,7 @@ import options from '../options';
+  * @param {import('../internal').Component | null} ancestorComponent The direct
+  * parent component
+  */
+-export function diff(dom, parentDom, newVNode, oldVNode, context, isSvg, excessDomChildren, mounts, ancestorComponent) {
++export function diff(dom, parentDom, newVNode, oldVNode, context, isSvg, excessDomChildren, mounts, ancestorComponent, force) {
+ 
+ 	// If the previous type doesn't match the new type we drop the whole subtree
+ 	if (oldVNode==null || newVNode==null || oldVNode.type!==newVNode.type) {",The JSDoc block of `diff()` needs to be updated for the new parameter,js,1,1,1
+"@@ -90,3 +90,18 @@ Blockly.Blocks['math_positive_number'] = {
+     this.setOutputShape(Blockly.OUTPUT_SHAPE_ROUND);
+   }
+ };
++
++Blockly.Blocks['math_angle'] = {
++  /**
++   * Block for angle picker.
++   * @this Blockly.Block
++   */
++  init: function() {
++    this.setHelpUrl(Blockly.Msg.MATH_NUMBER_HELPURL);
++    this.setColour(Blockly.Blocks.math.HUE);
++    this.appendDummyInput()
++        .appendField(new Blockly.FieldAngle('90'), 'NUM');
++    this.setOutput(true, 'Number');
++    this.setOutputShape(Blockly.OUTPUT_SHAPE_ROUND);
++  }
++};",Prefer jsonInit--everything here should be doable with json.,js,1,1,1
+"@@ -86,7 +86,7 @@ global._googlesitekitBaseData = {
+ 	blogPrefix: 'wp_',
+ 	ampMode: false,
+ 	isNetworkMode: false,
+-	isFirstAdmin: true,
++	isOwner: true,
+ 	splashURL: 'http://example.com/wp-admin/admin.php?page=googlesitekit-splash',
+ 	proxySetupURL: 'https://sitekit.withgoogle.com/site-management/setup/?scope=openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fsiteverification%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fwebmasters%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fanalytics%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fanalytics.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fanalytics.manage.users%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fanalytics.edit&supports=credentials_retrieval%20short_verification_token%20file_verification&nonce=&site_id=storybooksiteid.apps.sitekit.withgoogle.com',
+ 	proxyPermissionsURL: 'https://sitekit.withgoogle.com/site-management/permissions/?token=storybooktoken&site_id=storybooksiteid.apps.sitekit.withgoogle.com',",This should probably be kept since it's currently included in `_googlesitekitBaseData`.,js,1,1,1
+"@@ -0,0 +1,4 @@
++const title = virtualNode.children.find(({ props }) => {
++	return props.nodeName === 'title';
++});
++return !!title && title.actualNode.textContent.trim() !== '';",Minor nitpick: `title` is a bit confusing as I though it was the actual text of the title and not the virtualNode of the `title` element.,js,1,1,1
+"@@ -216,6 +216,18 @@ describe( 'modules/analytics properties', () => {
+ 				expect( registry.stores[ STORE_NAME ].store.getState().primaryPropertyType ).toBe( type );
+ 			} );
+ 		} );
++
++		describe( 'matchPropertyByURL', () => {
++			it( 'should return a correct property that has matching website URL', async () => {
++				const property = await registry.dispatch( STORE_NAME ).matchPropertyByURL( fixtures.propertiesProfiles.properties, 'http://wrhwh.com' );
++				expect( property ).toEqual( fixtures.propertiesProfiles.properties[ 0 ] );
++			} );
++
++			it( 'should return NULL when URL does not match', async () => {
++				const property = await registry.dispatch( STORE_NAME ).matchPropertyByURL( fixtures.propertiesProfiles.properties, 'http://wrongsite.com' );
++				expect( property ).toBeNull();
++			} );
++		} );
+ 	} );
+ 
+ 	describe( 'selectors', () => {",I'd prefer not to use the fixture here if we can as it makes it harder to understand; can we create a little property factory here as a helper so we can see which properties+URLs are involved? Perhaps we should also add a case or two to show that it matches with URL normalization as well?,js,1,1,1
+"@@ -54,6 +54,8 @@ describe('Aggregation', function () {
+         var collection = db.collection('shouldCorrectlyExecuteSimpleAggregationPipelineUsingArray');
+         // Insert the docs
+         collection.insertMany(docs, { w: 1 }, function (err, result) {
++          if (err) console.dir(err);
++
+           expect(result).to.exist;
+           expect(err).to.not.exist;
+ ",Is this `console.dir` left over from debugging something?,js,1,1,1
+"@@ -14,11 +14,12 @@ class Handle {
+     /** constructor **/
+     constructor() {
+         log.i('Starting job handle in %d', process.pid);
+-        this.db = manager.singleDefaultConnection();
+-        this.classes = {}; // {'job name': Constructor}
+-        this.files = {}; // {'ping': '/usr/local/countly/api/jobs/ping.js'}
+-        scan(this.db, this.files, this.classes);
+-
++        manager.singleDefaultConnection().then((db) => {
++            this.db = db;
++            this.classes = {}; // {'job name': Constructor}
++            this.files = {}; // {'ping': '/usr/local/countly/api/jobs/ping.js'}
++            scan(this.db, this.files, this.classes);
++        });
+     }
+ 
+     /**",Why do we still need `manager.singleDefaultConnection`?,js,1,1,1
+"@@ -77,8 +77,8 @@ public class LocalNewSessionQueuer extends NewSessionQueuer {
+   }
+ 
+   @Override
+-  public Optional<HttpRequest> remove() {
+-    return sessionRequests.poll();
++  public Optional<HttpRequest> remove(RequestId id) {
++    return sessionRequests.poll(id);
+   }
+ 
+   @Override",`poll` and `remove` have different meanings.,js,1,0,1
+"@@ -556,14 +556,15 @@ describe('Cursor', function() {
+           }
+ 
+           function finished() {
+-            collection.find(function(err, cursor) {
+-              test.equal(null, err);
++            (function() {
++              const cursor = collection.find();
++
+               test.throws(function() {
+                 cursor.each();
+               });
+ 
+               client.close(done);
+-            });
++            })();
+           }
+ 
+           insert(function() {",Why the IIFEs here? Are you trying to control variables? They should be lexically scoped since you're using `const`,js,1,1,1
+"@@ -108,7 +108,7 @@ exports.getRequestPath = (item) => {
+   } else if (item.file_type) {
+     return `${encodeURIComponent(item.meeting_id)}?recordingId=${encodeURIComponent(item.id)}`
+   }
+-  return `${encodeURIComponent(item.uuid)}`
++  return `${encodeURIComponent(encodeURIComponent(item.uuid))}`
+ }
+ 
+ exports.getStartDate = (item) => {",what kind of files does the `uuid` case match? Can we just always send `item.id` instead?,js,1,1,1
+"@@ -198,7 +198,7 @@ public class LocalDistributor extends Distributor {
+       Host host = new Host(bus, node);
+       host.update(status);
+       hosts.add(host);
+-      LOG.info(String.format(""Added node %s."", node.getId()));
++      LOG.finest(String.format(""Added node %s."", node.getId()));
+       host.runHealthCheck();
+ 
+       Runnable runnable = host::runHealthCheck;",This change is incorrect.,js,1,0,1
+"@@ -20,7 +20,7 @@ module.exports = function castBulkWrite(originalModel, op, options) {
+       const model = decideModelByObject(originalModel, op['insertOne']['document']);
+ 
+       const doc = new model(op['insertOne']['document']);
+-      if (model.schema.options.timestamps != null) {
++      if (doc.initializeTimestamps) {
+         doc.initializeTimestamps();
+       }
+       if (options.session != null) {",Shouldn't this be `if (model.schema.options.timestamps)` ?,js,1,1,1
+"@@ -50,6 +50,8 @@ export default function SetupFormGA4() {
+ 	const { setValues } = useDispatch( CORE_FORMS );
+ 	const { setUseSnippet } = useDispatch( MODULES_ANALYTICS_4 );
+ 
++	const shouldShowAssociatedPropertyNotice = useSelect( ( select ) => select( MODULES_ANALYTICS_4 ).getPropertyID() );
++
+ 	useMount( () => {
+ 		selectProperty( PROPERTY_CREATE );
+ 		setValues( FORM_SETUP, { profileName: _x( 'All Web Site Data', 'default Analytics view name', 'google-site-kit' ) } );","We may want to actually assign this to a `ga4Property` variable first and then include the same conditions as below `accountID && accountID !== ACCOUNT_CREATE && ga4PropertyID`. These should be consistent between all three scenarios: 1. UA scenario: require account not empty and not create, and require UA property not empty 2. GA4 scenario: require account not empty and not create, and require GA4 property not empty 3. GA4-transitional scenario: require account not empty and not create, and require UA property _or_ GA4 property not empty",js,1,1,0
+"@@ -272,8 +272,9 @@ Blockly.Msg.CATEGORY_EVENTS = 'Events';
+ Blockly.Msg.CATEGORY_CONTROL = 'Control';
+ Blockly.Msg.CATEGORY_SENSING = 'Sensing';
+ Blockly.Msg.CATEGORY_OPERATORS = 'Operators';
+-Blockly.Msg.CATEGORY_VARIABLES = 'Variables';
++Blockly.Msg.CATEGORY_VARIABLES = 'Data';
+ Blockly.Msg.CATEGORY_MYBLOCKS = 'My Blocks';
++Blockly.Msg.CATEGORY_EXTENSIONS = 'Extensions';
+ 
+ // Context menus
+ Blockly.Msg.DUPLICATE = 'Duplicate';","This is the label that translators are currently translating, and in Scratch 3.0 it should be 'Variables', so we shouldn't change this value.",js,1,1,1
+"@@ -0,0 +1,11 @@
++import React from 'react';
++import ReactDOM from 'react-dom';
++import './index.css';
++import App from './App';
++
++ReactDOM.render(
++  <React.StrictMode>
++    <App />
++  </React.StrictMode>,
++  document.getElementById('root')
++);","@jansiegel Should we remove StrictMode? This will trigger a warning with our current wrapper and ""UNSAFE"" use",js,0,1,1
+"@@ -185,8 +185,8 @@ function mountDOMElement(dom, internal, globalContext, isSvg, commitQueue) {
+ 			if (!isHydrating && newHtml.__html) {
+ 				dom.innerHTML = newHtml.__html;
+ 			}
+-			internal._children = [];
+-		} else if ((i = internal.props.children) != internal._children) {
++			internal._children = null;
++		} else if ((i = internal.props.children) != null) {
+ 			mountChildren(
+ 				dom,
+ 				Array.isArray(i) ? i : [i],","When mounting, `internal._children` is always `null` at this point since `mountChildren` hasn't been called on this internal yet. So this condition was only true when `props.children == null`. So I simplified this check to just use `null` directly. Also, there isn't a reason to have this check in `patch` cuz `props.children` is always an array VNodes and `internal._children` is always an array of Internals so they will never be equal.",js,1,1,1
+"@@ -71,6 +71,8 @@ export default class Realm {
+ 
+         [
+             'path',
++            'readOnly',
++            'schema',
+             'schemaVersion',
+         ].forEach((name) => {
+             Object.defineProperty(this, name, {get: util.getterForProperty(name)});",I think `readonly` would be nicer IMHO,js,1,1,1
+"@@ -62,6 +62,7 @@ goog.require('Blockly.inject');
+ goog.require('Blockly.utils');
+ goog.require('goog.color');
+ 
++goog.require('Blockly.ScratchMsgs');
+ 
+ // Turn off debugging when compiled.
+ /* eslint-disable no-unused-vars */",Move this between `ggog.require('Blockly.Procedures');` and `goog.require('Blockly.Toolbox');`,js,1,1,1
+"@@ -1,10 +1,8 @@
+ import { run } from '@ember/runloop';
+-import { getOwner } from '@ember/application';
+ import { hash } from 'rsvp';
+ import Service, { inject as service } from '@ember/service';
+ import Ember from 'ember';
+ import config from '../config/environment';
+-import { walkConfigs, setRTL } from '../utils/locale-utils';
+ 
+ export const DEFAULT_LANGUAGE = config.intl.defaultLocale || 'en';
+ ",These were removed along with the corresponding files since they don't relate to `ember-intl` anymore and were caught in my find/replace for `ember-i18n` to `ember-intl`. Is there a way I can verify that RTL is working properly with `ember-intl` in the same way it was before with `ember-i18n`?,js,1,1,1
+"@@ -1118,7 +1118,7 @@ window.ConfigurationsView = countlyView.extend({
+             return input;
+         }
+         else if (typeof value === ""number"") {
+-            return ""<input type='number' id='"" + id + ""' value='"" + value + ""' max='2147483647' min='0' onkeyup='this.value= (parseInt(this.value) > 2147483647) ? 2147483647 : this.value;'/>"";
++            return ""<input type='number' id='"" + id + ""' value='"" + value + ""'/>"";
+         }
+         else {
+             return ""<input type='text' id='"" + id + ""' value='"" + value + ""'/>"";",I think we agreed to leave this one,js,0,0,1
+"@@ -19,6 +19,7 @@ import getHours from ""date-fns/getHours"";
+ import getDay from ""date-fns/getDay"";
+ import getDate from ""date-fns/getDate"";
+ import dfgetWeek from ""date-fns/getWeek"";
++import getISOWeek from ""date-fns/getISOWeek"";
+ import getMonth from ""date-fns/getMonth"";
+ import getQuarter from ""date-fns/getQuarter"";
+ import getYear from ""date-fns/getYear"";",Is this still being used?,js,1,0,1
+"@@ -66,7 +66,7 @@ describe('liftFN', function() {
+     );
+   });
+ 
+-  it('retain order of arguments', function() {
++  it('retains order of arguments', function() {
+     assert.isTrue(
+       R.equals(
+         RA.liftFN(3, add3)(Maybe.Some('a'), Maybe.Some('b'), Maybe.Some('c')),",should retain order of arguments,js,1,1,1
+"@@ -74,7 +74,7 @@ public class SeleniumServer extends JettyServer {
+           getClass().getClassLoader())
+           .asSubclass(Routable.class);
+       Constructor<? extends Routable> constructor = rcHandler.getConstructor(ActiveSessions.class);
+-      LOG.info(""Bound legacy RC support"");
++      LOG.finest(""Bound legacy RC support"");
+       return constructor.newInstance(sessions);
+     } catch (ReflectiveOperationException e) {
+       // Do nothing.",This informational message is important to users. Please leave.,js,1,1,1
+"@@ -692,6 +692,8 @@ define(['browser'], function (browser) {
+         var h264Profiles = 'high|main|baseline|constrained baseline';
+ 
+         if (browser.tizen || browser.web0s ||
++            // iOS 12 incorrectly reports support
++            !(browser.iOS && browser.iOSVersion < 13) &&
+             videoTestElement.canPlayType('video/mp4; codecs=""avc1.640833""').replace(/no/, '')) {
+             maxH264Level = 51;
+         }",Making a function like `canPlayH264Level51` or something would simplify the complexity of this a bit.,js,1,1,1
+"@@ -1,6 +1,6 @@
+ import { options as rawOptions } from 'preact';
+ 
+-/** @type {import('../../src/internal').Options} */
++/** @type {import('preact/src/internal').Options} */
+ let options = rawOptions;
+ 
+ let oldVNode = options.vnode;","Technically with the jsconfig.json, this is now possible, but felt out of scope for this PR.",js,0,1,1
+"@@ -73,5 +73,6 @@ storiesOf( 'Global/ReportTable', module )
+ 				/>
+ 			</Layout>
+ 		);
+-	} )
+-;
++	}, {
++		padding: 0,
++	} );","Same here. Please, use the default padding.",js,1,1,1
+"@@ -194,7 +194,17 @@ Blockly.Xml.blockToDom = function(block, opt_noId) {
+     var commentElement = goog.dom.createDom('comment', null, commentText);
+     if (typeof block.comment == 'object') {
+       commentElement.setAttribute('pinned', block.comment.isVisible());
+-      var hw = block.comment.getBubbleSize();
++      var hw;
++      if (block.comment instanceof Blockly.ScratchBlockComment) {
++        commentElement.setAttribute('type', 'scratch');
++        var xy = block.comment.getXY();
++        commentElement.setAttribute('x', xy.x);
++        commentElement.setAttribute('y', xy.y);
++        commentElement.setAttribute('minimized', block.comment.isMinimized());
++        hw = block.comment.getHeightWidth();
++      } else {
++        hw = block.comment.getBubbleSize();
++      }
+       commentElement.setAttribute('h', hw.height);
+       commentElement.setAttribute('w', hw.width);
+     }",Make these into helper functions.,js,1,0,1
+"@@ -240,6 +240,12 @@ class Server extends EventEmitter {
+     }
+ 
+     wireProtocol.command(this, ns, cmd, options, (err, result) => {
++      if (err && err instanceof MongoNetworkError) {
++        if (options.session) {
++          options.session.serverSession.isDirty = true;
++        }
++      }
++
+       if (err && isSDAMUnrecoverableError(err)) {
+         this.emit('error', err);
+       }",`if (err && err instanceof MongoNetworkError && options.session)`,js,1,0,0
+"@@ -907,6 +907,8 @@ export const showErrorNotification = ( ErrorComponent, props = {} ) => {
+ export const decodeHtmlEntity = ( str ) => {
+ 	const decoded =  str.replace( /&#(\d+);/g, function( match, dec ) {
+ 		return String.fromCharCode( dec );
++	} ).replace( /(\\)/g, function( ) {
++		return '';
+ 	} );
+ 
+ 	return unescape( decoded );","No need for a function here, this can simply become `.replace( /(\\)/g, '' )`",js,1,1,1
+"@@ -0,0 +1,5 @@
++package org.openqa.selenium.grid.session.remote;
++
++public class SessionTest {
++
++}",And another empty test. Please remove until there's content.,js,1,1,1
+"@@ -26,9 +26,13 @@ const port = process.env.PORT || 8002;
+ app.use(
+ 	'/assets',
+ 	express.static(
+-		`${rootPath}/node_modules/@salesforce-ux/design-system/assets/`
++		path.join(
++			__dirname,
++			`${rootPath}/node_modules/@salesforce-ux/design-system/assets/`
++		)
+ 	)
+ );
++app.use('/assets', express.static(path.join(__dirname, `${rootPath}/assets/`)));
+ app.use(express.static(`${rootPath}/storybook-based-tests`));
+ 
+ console.log(`","HItting ""JavaScript heap out of memory"" error when running `npm run test:snapshot ` on local right now, but this fix should allow the snapshot tests that compare image snapshots to pass after the SLDS upgrade. The image diffs were due to the new background: #b0c4df",js,1,1,1
+"@@ -166,7 +166,14 @@ export function diff(parentDom, newVNode, oldVNode, context, isSvg, excessDomChi
+ 	return newVNode._dom;
+ }
+ 
++/**
++ * @param {Array<import('../internal').Component>} commitQueue List of components
++ * which have callbacks to invoke in commitRoot
++ * @param {import('../internal').VNode} root
++ */
+ export function commitRoot(commitQueue, root) {
++	if (options._commit) options._commit(root, commitQueue);
++
+ 	commitQueue.some(c => {
+ 		try {
+ 			commitQueue = c._renderCallbacks;","If we need a post commit option, we should probably call it `_committed` following our existing option naming pattern",js,1,1,1
+"@@ -24,7 +24,7 @@ if (!_rng && _crypto && _crypto.getRandomValues) {
+ }
+ 
+ try {
+-  if (!_rng && require) {
++  if (!_rng) {
+     const nodeCrypto = require('crypto');
+     _rng = () => nodeCrypto.randomBytes(16);
+   }",This change worries me. How does this change effect other supported environments?,js,1,1,1
+"@@ -4,7 +4,7 @@ import globalize from '../../scripts/globalize';
+ import layoutManager from '../layoutManager';
+ import { playbackManager } from '../playback/playbackmanager';
+ import playMethodHelper from '../playback/playmethodhelper';
+-import syncPlayManager from '../syncPlay/syncPlayManager';
++import SyncPlay from 'SyncPlay';
+ import './playerstats.css';
+ import ServerConnections from '../ServerConnections';
+ ",This import seems invalid. Should probably be a relative path?,js,1,1,1
+"@@ -1,5 +1,10 @@
+-return !!(
+-	node.getAttribute('lang') ||
+-	node.getAttribute('xml:lang') ||
+-	''
+-).trim();
++const { isXHTML } = axe.utils;
++
++const langValue = (node.getAttribute(`lang`) || '').trim();
++const xmlLangValue = (node.getAttribute(`xml:lang`) || '').trim();
++
++if (!langValue && !isXHTML(document)) {
++	return false;
++}
++
++return !!(langValue || xmlLangValue);",Just curious: why use backticks (\`) here rather than quotes?,js,1,1,1
+"@@ -50,7 +50,7 @@ define(['backdrop', 'userSettings', 'libraryMenu'], function (backdrop, userSett
+                         return i;
+                     }));
+                 } else {
+-                    backdrop.clear();
++                    backdrop.clearBackdrop();
+                 }
+             });
+         }",I think `clear` was better than `clearBackdrop` since the filename already indicates the object.,js,1,1,1
+"@@ -420,6 +420,8 @@ ReplSetState.prototype.update = function(server) {
+   //
+   if (!this.primary && ismaster.ismaster && ismaster.setName) {
+     var ismasterElectionId = server.lastIsMaster().electionId;
++    this.setName = this.setName.trim();
++    ismaster.setName = ismaster.setName.trim();
+     if (this.setName && this.setName !== ismaster.setName) {
+       this.topologyType = TopologyType.ReplicaSetNoPrimary;
+       return new MongoError(",Why are we modifying `ismaster`?,js,1,1,1
+"@@ -35,6 +35,9 @@ const { BundleAnalyzerPlugin } = require( 'webpack-bundle-analyzer' );
+ const CreateFileWebpack = require( 'create-file-webpack' );
+ const ManifestPlugin = require( 'webpack-manifest-plugin' );
+ const features = require( './feature-flags.json' );
++const formattedFeaturesToPHPArray = Array.isArray( features )
++	? features.map( ( feature ) => `'${ feature }'` ).join( ',' )
++	: '';
+ 
+ const projectPath = ( relativePath ) => {
+ 	return path.resolve( fs.realpathSync( process.cwd() ), relativePath );",We don't need the array check here because it's our own import which isn't dynamic so we can rely on it always being an array. If it wasn't something is probably wrong and it's probably better for it to fail here,js,1,1,1
+"@@ -85,6 +85,10 @@ const fetchGetPropertiesStore = createFetchStore( {
+ 		);
+ 	},
+ 	reducerCallback( state, properties, { accountID } ) {
++		if ( ! Array.isArray( properties ) ) {
++			return state;
++		}
++
+ 		return {
+ 			...state,
+ 			properties: {","Curious, why is this necessary here? Shouldn't `properties` always expected to be an array? If this check is needed, I wonder if we have a problem elsewhere.",js,1,1,1
+"@@ -40,7 +40,8 @@ export function setAccessor(node, name, old, value, isSvg) {
+ 		}
+ 		if (value && typeof value==='object') {
+ 			if (!isString(old)) {
+-				for (let i in old) if (!(i in value)) node.style[i] = '';
++				for (let i in old)
++					if (!(i in value) || value[i] == null || value[i] === false) node.style[i] = '';
+ 			}
+ 			for (let i in value) {
+ 				node.style[i] = typeof value[i]==='number' && !NON_DIMENSION_PROPS[i] ? (value[i]+'px') : value[i];",Can skip the `in` check now I think,js,1,0,1
+"@@ -822,7 +822,7 @@ const htmlElms = {
+   },
+   svg: {
+     contentTypes: ['embedded', 'phrasing', 'flow'],
+-    allowedRoles: ['application', 'document', 'img'],
++    allowedRoles: true,
+     chromiumRole: 'SVGRoot',
+     namingMethods: ['svgTitleText']
+   },",Is this the only change we need to make for an updated ARIA in HTML?,js,1,1,1
+"@@ -127,8 +127,8 @@ module.exports = function(config) {
+ 						exclude: /node_modules/,
+ 						loader: 'babel-loader',
+ 						options: {
+-							comments: false,
+-							compact: true,
++							// comments: false,
++							// compact: true,
+ 							plugins: coverage ?
+ 								[['istanbul', {
+ 									exclude: [",Note to self: Undo before checking in,js,0,0,1
+"@@ -1119,7 +1119,7 @@ class BulkOperationBase {
+         callback,
+         new BulkWriteError(
+           toError({
+-            message: 'write operation failed',
++            message: this.s.bulkResult.writeErrors[0].errmsg,
+             code: this.s.bulkResult.writeErrors[0].code,
+             writeErrors: this.s.bulkResult.writeErrors
+           }),",What happens if `this.s.bulkResult.writeErrors[0]` or its `errmsg` doesn't exist? Let's check that the `errmsg` exists and use the default `write operation failed` message if not.,js,1,1,1
+"@@ -448,7 +448,7 @@ class Uppy {
+       this.scheduledAutoProceed = setTimeout(() => {
+         this.scheduledAutoProceed = null
+         this.upload().catch((err) => {
+-          console.error(err.stack || err.message || err)
++          onError(err.stack || err.message || err)
+         })
+       }, 4)
+     }","`upload()` already logs an error and shows the informer, so we don't need to use `onError` here. (`console.error` is probably not that necessary either)",js,1,1,1
+"@@ -21,7 +21,7 @@ export function render(vnode, parentDom, replaceNode) {
+ 	diffChildren(
+ 		parentDom,
+ 		replaceNode ? vnode : (parentDom._prevVNode = vnode),
+-		replaceNode ? undefined : oldVNode,
++		oldVNode,
+ 		EMPTY_OBJ,
+ 		parentDom.ownerSVGElement !== undefined,
+ 		replaceNode",what was the point of having undefined here?,js,1,1,1
+"@@ -0,0 +1,7 @@
++import { getImplicitRole } from '../commons/aria';
++
++function presentationRoleConflictMatches(node) {
++  return getImplicitRole(node) !== null;
++}
++
++export default presentationRoleConflictMatches;","Can you use the virtualNode here instead? We've been moving our rules over to exclusively use virtualNode. Tests can run dramatically faster if the DOM isn't involved, and not all situations where axe-core is used needs to build a complete DOM tree.",js,1,1,1
+"@@ -1,8 +1,10 @@
+ import styled from 'styled-components'
+ import System from './System'
+ 
+-const create = new System({
+-  createComponent: type => (...args) => styled(type)([], ...args)
++export const createSystem = (styledFn) => new System({
++  createComponent: type => (...args) => styledFn(type)([], ...args)
+ })
+ 
++const create = createSystem(styled)
++
+ export default create","Thanks for this! I was first considering exporting the `System` class itself, since it might eventually take more arguments that the `createComponent` argument. I think also having the empty array as the first argument is only necessary for styled-components, so I'd want to make sure that part is really customizable. The `createComponent` function could also be leveraged to do more than only swap out css-in-js libraries, if that makes sense...",js,1,1,0
+"@@ -1229,6 +1229,14 @@ class WebDriver {
+     if (target && cdpTargets.indexOf(target.toLowerCase()) === -1) {
+       throw new error.InvalidArgumentError('invalid target value')
+     }
++
++    if (debuggerAddress.match(/\/se\/cdp/)) {
++      if (debuggerAddress.match(""ws:\/\/"", ""http:\/\/"")) {
++        return debuggerAddress.replace(""ws:\/\/"", ""http:\/\/"") 
++      }
++      return debuggerAddress
++    }
++
+     const path = '/json/version'
+     let request = new http.Request('GET', path)
+     let client = new http.HttpClient('http://' + debuggerAddress)",if we are returning the `ws` here when passing in `se:cdp` we can just return it straight or do we have to make a request to get the `ws` address?,js,1,1,1
+"@@ -0,0 +1,11 @@
++(() => {
++  const docusaurusVersions = ['9.0'];
++  const legacyVersions = ['8.3.0', '8.2.0', '8.1.0', '8.0.0', '7.4.2', '7.4.1', '7.4.0', '7.3.0', '7.2.2', '7.2.1', '7.2.0', '7.1.1', '7.1.0', '7.0.3', '7.0.2', '7.0.1', '7.0.0', '6.2.2', '6.2.1', '6.2.0', '6.1.1', '6.1.0', '6.0.1', '6.0.0', '5.0.2', '5.0.1', '5.0.0', '4.0.0', '3.0.0', '2.0.0', ['1.18.1', '0.38.1'], ['1.18.0', '0.38.0'], ['1.17.0', '0.37.0'], ['1.16.0', '0.36.0'], ['1.15.1', '0.35.1'], ['1.15.0', '0.35.0'], ['1.14.3', '0.34.3'], ['1.14.2', '0.34.2'], ['1.14.1', '0.34.1'], ['1.14.0', '0.34.0']];
++  const versions = [...docusaurusVersions, ...legacyVersions];
++
++  if (window.location.hostname === 'dev.handsontable.com') {
++    versions.unshift('next');
++  }
++
++  docVersions && docVersions(versions);
++})();","probably redundant file, please verify",js,1,0,1
+"@@ -438,7 +438,12 @@ describe('Connection Pool', function () {
+     });
+ 
+     loadSpecTests('connection-monitoring-and-pooling').forEach(test => {
+-      it(test.description, function () {
++      const itFn =
++        test.description ===
++        'must aggressively timeout threads enqueued longer than waitQueueTimeoutMS'
++          ? it.skip
++          : it;
++      itFn(test.description, function () {
+         const operations = test.operations;
+         const expectedEvents = test.events || [];
+         const ignoreEvents = test.ignore || [];","This test has been flaky for a long time, if we're okay with skipping I can make a ticket to take a look at this later.",js,1,0,1
+"@@ -81,6 +81,7 @@ module.exports = function Dashboard (props) {
+       onDrop={props.handleDrop}
+     >
+       <div
++        aria-hidden=""true""
+         className=""uppy-Dashboard-overlay""
+         tabIndex={-1}
+         onClick={props.handleClickOutside}",Why was this added?,js,1,0,1
+"@@ -98,6 +98,8 @@ Blockly.DataCategory.addDataVariable = function(xmlList, variable) {
+   //    <field name=""VARIABLE"">variablename</field>
+   // </block>
+   Blockly.DataCategory.addBlock(xmlList, variable, 'data_variable', 'VARIABLE');
++  // In the flyout, this ID must match variable ID for monitor syncing reasons
++  xmlList[xmlList.length - 1].setAttribute('id', variable.getId());
+ };
+ 
+ /**","LG but add an id to the xml on line 97 (`id=""variableId""` or something similar)",js,1,1,1
+"@@ -113,9 +113,9 @@ export function diffChildren(
+ 
+ 		newDom = childInternal._dom;
+ 
+-		if (childVNode.ref) {
++		if (childVNode.ref || oldVNodeRef) {
+ 			if (!refs) refs = [];
+-			childInternal.ref = childVNode.ref
++			childInternal.ref = childVNode.ref;
+ 			refs.push(
+ 				oldVNodeRef,
+ 				childVNode.ref,","Wondering if we even need the conditional here, or could just always assign.",js,1,1,1
+"@@ -1,14 +1,16 @@
++import { translationMacro as t } from 'ember-i18n';
+ import AbstractModuleRoute from 'hospitalrun/routes/abstract-module-route';
+ import FulfillRequest from 'hospitalrun/mixins/fulfill-request';
+ import InventoryId from 'hospitalrun/mixins/inventory-id';
+ import InventoryLocations from 'hospitalrun/mixins/inventory-locations'; // inventory-locations mixin is needed for fulfill-request mixin!
+ export default AbstractModuleRoute.extend(FulfillRequest, InventoryId, InventoryLocations, {
+   addCapability: 'add_inventory_item',
++  buttonText: t('navigation.subnav.inventoryReceived'),
+   additionalButtons: function() {
+     if (this.currentUserCan(this.get('addCapability'))) {
+       return [{
+         buttonAction: 'newInventoryBatch',
+-        buttonText: '+ inventory received',
++        buttonText: this.get('buttonText'),
+         class: 'btn btn-primary'
+       }];
+     }","This buttonText should use a separate localization entry, not reuse the one from the subnav (the text is intentionally lowercase for the button).",js,1,1,1
+"@@ -46,13 +46,13 @@ export function createMethod(type, name, mutates) {
+             throw new TypeError(name + ' method was called on an object of the wrong type!');
+         }
+ 
+-        let result = rpc.callMethod(realmId, id, name, Array.from(arguments));
+-
+-        if (mutates) {
+-            fireMutationListeners(realmId);
++        try {
++            return rpc.callMethod(realmId, id, name, Array.from(arguments));
++        } finally {
++            if (mutates) {
++                fireMutationListeners(realmId);
++            }
+         }
+-
+-        return result;
+     };
+ }
+ ",what gets returns if this throws?,js,1,1,1
+"@@ -1,5 +1,8 @@
++import cache from '../core/base/cache';
++
+ function windowIsTopMatches(node) {
+ 	return (
++		cache.get('isTopWindow') ||
+ 		node.ownerDocument.defaultView.self === node.ownerDocument.defaultView.top
+ 	);
+ }","Why not pass the options around, or record what we think is the top level in the context object and pass that around? This is basically using the cache as a way to create global variables. Global variables is something we're trying to get out of, lets not add more of them.",js,1,1,1
+"@@ -132,10 +132,8 @@ export function diff(parentDom, newVNode, oldVNode, context, isSvg, excessDomChi
+ 
+ 			c.base = newVNode._dom;
+ 
+-			while (tmp=c._renderCallbacks.pop()) {
+-				if (c._nextState) { c.state = c._nextState; }
+-				tmp.call(c);
+-			}
++			tmp = c._renderCallbacks; c._renderCallbacks=[];
++			tmp.some(cb => cb.call(c));
+ 
+ 			// Don't call componentDidUpdate on mount or when we bailed out via
+ 			// `shouldComponentUpdate`",Nit: let's newline this,js,1,1,1
+"@@ -19,6 +19,7 @@
+ ""use strict"";
+ 
+ const {promisify} = require(""./utils.js"");
++const { realpath } = require(""fs"");
+ 
+ const instanceMethods = {
+     logIn(credentials) {",This looks like an auto-complete error? :),js,1,1,1
+"@@ -142,12 +142,12 @@ class BrandFacade
+     /**
+      * @param int $brandId
+      */
+-    public function deleteById($brandId)
++    public function deleteById(int $brandId): void
+     {
+         $brand = $this->brandRepository->getById($brandId);
+         $this->em->remove($brand);
+-
+         $this->dispatchBrandEvent($brand, BrandEvent::DELETE);
++        $this->friendlyUrlFacade->removeFriendlyUrlsForAllDomains('front_brand_detail', $brandId);
+ 
+         $this->em->flush();
+     }",Can you please state this change in upgrade notes as it's BC break? (also please update PR description - BC breaks: yes),php,0,1,1
+"@@ -376,6 +376,13 @@ class AdminController extends Controller
+      */
+     protected function createEditForm($entity, array $entityProperties)
+     {
++        $servicename = sprintf('form.type.%s', strtolower($this->entity['name']));
++
++		if($this->get('service_container')->has($servicename))
++		{
++			return $this->createForm( $this->get($servicename), $entity	);
++		}
++        
+         $form = $this->createFormBuilder($entity, array(
+             'data_class' => $this->entity['class'],
+         ));","Maybe this should be prefixed with the `easyadmin` namespace ? (**_i.e**_: easyadmin.form.type.<entityname>) Or something more appropriate, as the form will not really be part of the bundle.",php,1,1,1
+"@@ -31,10 +31,9 @@ class ImportErrorsGrid extends AbstractGrid
+         $id->setVisible(false);
+         $this->addColumn('id', $id);
+ 
+-        $this->addColumn('line', new NumericColumn('line', 'Record number', new NumericFilter()));
+         $this->addColumn('created_at', new TextColumn('created_at', 'Created at', new DateFilter()));
+         $this->addColumn('message', new TextColumn('message', 'Error description', new TextFilter()));
+ 
+-        $this->orderBy('line', 'ASC');
++        $this->orderBy('id', 'ASC');
+     }
+ }",If `id` is not numeric I thing is better order by column `created_at`?,php,1,1,1
+"@@ -160,6 +160,11 @@ class Configuration implements ConfigurationInterface
+     private function addGlobalOptionsSection(ArrayNodeDefinition $rootNode)
+     {
+         $rootNode
++            ->beforeNormalization()
++                ->ifTrue(function ($v) { return isset($v['default_templates']); })
++                ->thenInvalid('The ""default_templates"" key is reserved for internal use and cannot be defined. It contains the templates to use when no entity configuration is available (for example in exception pages).')
++            ->end()
++
+             ->children()
+                 ->scalarNode('site_name')
+                     ->defaultValue('Easy Admin')","Why ""exposing"" it in the bundle's configuration if it's only available as of processed metadata ?",php,1,1,1
+"@@ -21,7 +21,7 @@ class ArticleTest extends TransactionFunctionalTestCase
+     private $articleFactory;
+ 
+     /**
+-     * @var \Doctrine\ORM\EntityManager
++     * @var \Shopsys\FrameworkBundle\Component\EntityExtension\EntityManagerDecorator
+      */
+     private $em;
+ ",OK now it make sense and also that `flush($entityInstance)`,php,1,0,1
+"@@ -951,11 +951,10 @@ class UpdateManager
+         return base64_encode(hash_hmac('sha512', http_build_query($data, '', '&'), base64_decode($secret), true));
+     }
+ 
+-    //
+-    // Internals
+-    //
+-
+-    protected function getMigrationTableName()
++    /**
++     * @return string
++     */
++    public function getMigrationTableName()
+     {
+         return Config::get('database.migrations', 'migrations');
+     }",Please check to make sure your linters haven't screwed with OctoberCMS stuff before making PRs ;),php,1,1,1
+"@@ -103,4 +103,14 @@ class Missing extends DefaultRecord
+         $title = parent::getShortTitle();
+         return empty($title) ? $this->determineMissingTitle() : $title;
+     }
++
++    /**
++     * Get an array of all the formats associated with the record.
++     *
++     * @return array
++     */
++    public function getFormats()
++    {
++        return ['other'];
++    }
+ }","As a side effect, I think this is going to cause an untranslated ""other"" text to appear next to placeholder entries for missing records in lists. Would it be better to use 'Unknown' here to leverage existing translations, or does that not work in other ways?",php,1,1,1
+"@@ -29,6 +29,19 @@ class Customer
+      */
+     protected $billingAddresses;
+ 
++    /**
++     * @var \Shopsys\FrameworkBundle\Model\Customer\DeliveryAddress[]|\Doctrine\Common\Collections\Collection
++     *
++     * @ORM\OneToMany(targetEntity=""Shopsys\FrameworkBundle\Model\Customer\DeliveryAddress"", mappedBy=""customer"", cascade={""persist""})
++     */
++    protected $deliveryAddresses;
++
++    public function __construct()
++    {
++        $this->billingAddresses = new ArrayCollection();
++        $this->deliveryAddresses = new ArrayCollection();
++    }
++
+     /**
+      * @param \Shopsys\FrameworkBundle\Model\Customer\BillingAddress $billingAddress
+      */",I'm not sure if this change doesn't break the application.. because before it would set billing addresses to an empty collection and then add one. Now it seems that there could be more addresses,php,1,1,1
+"@@ -26,7 +26,7 @@ class IndependentTransportVisibilityCalculationTest extends TransactionFunctiona
+     private $independentTransportVisibilityCalculation;
+ 
+     /**
+-     * @var \Shopsys\FrameworkBundle\Model\Transport\TransportDataFactoryInterface
++     * @var \App\Model\Transport\TransportDataFactory
+      * @inject
+      */
+     private $transportDataFactory;",Why is it necessary to replace interfaces with class?,php,1,1,1
+"@@ -28,14 +28,12 @@ class AttributeGroupGrid extends AbstractGrid
+      */
+     public function init(GridConfigurationInterface $configuration, Language $language): void
+     {
+-        $filters = $configuration->getFilters();
+-
+-        $id = new TextColumn('id', 'Id', new TextFilter($filters->get('id')));
++        $id = new TextColumn('id', 'Id', new TextFilter());
+         $id->setVisible(false);
+         $this->addColumn('id', $id);
+-        $this->addColumn('code', new TextColumn('code', 'Code', new TextFilter($filters->get('code'))));
+-        $this->addColumn('name', new TextColumn('name', 'Name', new TextFilter($filters->get('name'))));
+-        $this->addColumn('elements_count', new IntegerColumn('elements_count', 'Elements Count', new TextFilter($filters->get('elements_count'))));
++        $this->addColumn('code', new TextColumn('code', 'Code', new TextFilter()));
++        $this->addColumn('name', new TextColumn('name', 'Name', new TextFilter()));
++        $this->addColumn('elements_count', new IntegerColumn('elements_count', 'Elements Count', new TextFilter()));
+ 
+         $links = [
+             'get' => [",In TextColum u can use TextFilter as class default. Less coding :),php,1,1,1
+"@@ -23,14 +23,14 @@ class CacheDownloaderDecorator implements DownloaderInterface
+         $this->directory = sprintf('%s/var/downloader', $appKernel->getProjectDir());
+     }
+ 
+-    public function download(string $url, array $headers = []): string
++    public function download(string $url, array $headers = [], string $acceptedHeaderTypes = null): string
+     {
+         $data = parse_url($url);
+ 
+         $filename = sprintf('%s/%s%s', $this->directory, $data['host'], $data['path']);
+ 
+         if (!file_exists($filename)) {
+-            $content = $this->downloader->download($url, $headers);
++            $content = $this->downloader->download($url, $headers, $acceptedHeaderTypes);
+             if ($content) {
+                 $this->saveFile($filename, $content);
+             }",As far as I know it is about limiting the allowed mime formats ? So maybe it is better to call it AcceptedMimeTypes or AcceptetContenType ?,php,1,1,1
+"@@ -8,7 +8,7 @@ use Cms\Classes\Controller;
+ use Cms\Classes\ComponentBase;
+ use Illuminate\Pagination\Paginator;
+ use Illuminate\Support\Collection;
+-use Illuminate\Support\Debug\HtmlDumper;
++use Symfony\Component\VarDumper\Dumper\HtmlDumper;
+ use Symfony\Component\VarDumper\Cloner\VarCloner;
+ use October\Rain\Database\Model;
+ ",Does this require a class alias setup in the library?,php,1,1,1
+"@@ -73,6 +73,7 @@ class EasyAdminExtension extends Extension
+         $backendConfiguration['entities'] = $this->getEntitiesConfiguration($backendConfiguration['entities']);
+         $backendConfiguration = $this->processEntityActions($backendConfiguration);
+         $backendConfiguration = $this->processEntityTemplates($backendConfiguration);
++        $backendConfiguration['default_entity_name'] = $this->getFirstEntityName($backendConfiguration);
+ 
+         $container->setParameter('easyadmin.config', $backendConfiguration);
+ ","If you create it at runtime, why not allowing it in the EasyAdmin user configuration?",php,1,1,1
+"@@ -27,11 +27,8 @@ final class ForbiddenSuperGlobalSniff implements Sniff
+     {
+         return [T_VARIABLE];
+     }
+-
+-    /**
+-     * @param int $position
+-     */
+-    public function process(File $file, $position): void
++    
++    public function process(File $file, int $position): void
+     {
+         $currentToken = $file->getTokens()[$position];
+ ",Should be fixed,php,1,0,1
+"@@ -187,9 +187,9 @@ function show_status_html($x) {
+     end_table();
+     
+     global $server_version;
+-    global $git_commit;
+-    if ( isset($server_version) && isset($git_commit) ) {
+-        echo ""Server version: $server_version (<a href=https://github.com/BOINC/boinc/commit/$git_commit>$git_commit</a>)<br>"";
++    global $git_url;
++    if ( isset($server_version) && isset($git_url) ) {
++        echo ""Server version: <a href=\""$git_url\"">$server_version</a><br>"";
+     }
+ 
+     if ($j->db_revision) {","I recommend to make the link optional but always show the version (if available). Right now `$git_url` is set in a way that makes the following assumptions: - the source repo was cloned via `https`, not `ssh` - the source repo's relevant remote is called ""origin"" I think that both assumptions shouldn't be made. At least the code should prepare for the case that they're no met, i.e. make the link/URL optional and don't just assume you got a ""working"" `$git_url`.",php,1,1,0
+"@@ -3,7 +3,7 @@ namespace Psalm\Tests\Provider;
+ 
+ use PhpParser;
+ 
+-class ParserInstanceCacheProvider extends \Psalm\Provider\ParserCacheProvider
++class ParserInstanceCacheProvider extends \Psalm\Internal\Provider\ParserCacheProvider
+ {
+     /**
+      * @var array<string, string>",nit: Would it make more sense to move tests/Provider to tests/Internal/Provider (etc.) so that Psalm\Tests\Internal\Foo contains overrides of Psalm\Internal\Foo (e.g. if both Psalm\Provider and Psalm\Internal\Provider exist later),php,1,1,1
+"@@ -1,4 +1,5 @@
+ <?php namespace System\Traits;
++use October\Rain\Exception\ValidationException;
+ 
+ /**
+  * Property container trait","Doesn't look like this needs to be here, no exceptions are thrown.",php,1,1,1
+"@@ -53,7 +53,10 @@ class Bootstrap
+         }
+ 
+         $kernel = new AppKernel($this->environment, EnvironmentType::isDebug($this->environment));
+-        Request::setTrustedProxies(['127.0.0.1'], Request::HEADER_X_FORWARDED_ALL);
++
++        $kernel->boot();
++        $trustedProxies = $kernel->getContainer()->getParameter('trusted_proxies');
++        Request::setTrustedProxies($trustedProxies, Request::HEADER_X_FORWARDED_ALL);
+         if ($this->console) {
+             $input = new ArgvInput();
+             $output = new ConsoleOutput();",kernel->boot seems to have bad impact on symfony console somehow,php,1,1,1
+"@@ -121,7 +121,9 @@ class FieldExtension extends AbstractExtension
+ 
+     public function getType(Field $field): string
+     {
+-        return $field->getType() ?? $field->getDefinition()->get('type');
++        // Note, this used to be a ternary, with `?? $field->getDefinition()->get('type');`. I'm not sure
++        // how/when this would trigger, since $field->getType always returns a value. 🤔💭
++        return $field->getType();
+     }
+ 
+     /**","Hm, looks like it was left as a ""safe"" choice in #1709 . Which means it's probably safe as-is now.",php,0,1,1
+"@@ -151,7 +151,7 @@ func sentryNotSetupWarning() {
+ // from the last saved version. If it is, prompt to request anon ddev usage stats
+ // and update the info.
+ func checkDdevVersionAndOptInSentry() error {
+-	if !output.JSONOutput && version.COMMIT != globalconfig.DdevGlobalConfig.LastUsedVersion && globalconfig.DdevGlobalConfig.InstrumentationOptIn == false {
++	if !output.JSONOutput && version.COMMIT != globalconfig.DdevGlobalConfig.LastUsedVersion && globalconfig.DdevGlobalConfig.InstrumentationOptIn == false && os.Getenv(""DDEV_NO_SENTRY"") == """" {
+ 		allowStats := util.Confirm(""It looks like you have a new ddev release.\nMay we send anonymous ddev usage statistics and errors?\nTo know what we will see please take a look at\nhttps://ddev.readthedocs.io/en/latest/users/cli-usage/#opt-in-usage-information\nPermission to beam up?"")
+ 		if allowStats {
+ 			globalconfig.DdevGlobalConfig.InstrumentationOptIn = true","I think it'd be a good idea to define the environment variable name as a constant in values.go because it's hard-coded in several places, but that's a small point.",php,1,1,1
+"@@ -0,0 +1,18 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Bolt\Widget;
++
++use Symfony\Component\HttpFoundation\Response;
++
++/**
++ * Interface ResponseAware - Widgets that make use of the Response to provide
++ * their functionality need to implement this interface.
++ */
++interface ResponseAware
++{
++    public function setResponse(?Response $response = null): WidgetInterface;
++
++    public function getResponse(): ?Response;
++}",responses are not optional here,php,1,1,1
+"@@ -78,4 +78,17 @@ return [
+ 
+     'prefix' => 'october',
+ 
++    /*
++    |--------------------------------------------------------------------------
++    | Disable Request Cache
++    |--------------------------------------------------------------------------
++    |
++    | The request cache remembers cache retrievals from your cache store
++    | in memory to speed up consecutive retrievals within the same request.
++    | It is recommended you leave this on both in production and development.
++    |
++    */
++
++    'disableRequestCache' => false,
++
+ ];","Change `remembers` to `stores`, `your` to `the`, and replace the last line with `Set to true to disable this in-memory request cache` please. Thanks!",php,1,1,1
+"@@ -1024,6 +1024,13 @@ class ArrayAccessTest extends TestCase
+                         return $p[""name""];
+                     }'
+             ],
++            'unsetListKeyedArrayDisableListFlag' => [
++                '<?php
++                $a = [""a"", ""b""];
++                unset($a[0]);
++                ',
++                'assertions' => ['$a===' => 'array{1: ""b""}']
++            ],
+         ];
+     }
+ ",This can be improved by keeping the flag when _last_ element is being unset.,php,1,1,1
+"@@ -13,7 +13,7 @@ declare(strict_types=1);
+ 
+ namespace Sonata\MediaBundle\Document;
+ 
+-use Sonata\DatagridBundle\Pager\PagerInterface;
++use Sonata\AdminBundle\Datagrid\PagerInterface;
+ use Sonata\Doctrine\Document\BaseDocumentManager;
+ use Sonata\MediaBundle\Model\MediaManagerInterface;
+ ",This looks wrong. You should use the bundle without the admin stuff,php,1,1,1
+"@@ -76,6 +76,7 @@ class OverviewModuleController extends AbstractModuleController
+     {
+         $connectedHosts = [];
+         $missingHosts = [];
++        $invalidPath = [];
+ 
+         foreach ($this->connections as $connection) {
+             $coreUrl = $connection->getScheme() . '://' . $connection->getHost() . ':' . $connection->getPort() . $connection->getPath();",should be plural,php,1,1,1
+"@@ -31,7 +31,12 @@ class FormTabs implements IteratorAggregate, ArrayAccess
+      * @var string Default tab label to use when none is specified.
+      */
+     public $defaultTab = 'backend::lang.form.undefined_tab';
+-
++    
++    /**
++     * @var string List of icons for their corresponding tabs.
++     */
++    public $icons;
++    
+     /**
+      * @var bool Should these tabs stretch to the bottom of the page layout.
+      */",This would be an array right? Also could you add the expected array structure here in the form of `['tab-name' => 'icon-class']`?,php,1,1,1
+"@@ -66,10 +66,6 @@ echo ""<project_config>
+     <web_rpc_url_base>"".secure_url_base().""</web_rpc_url_base>
+ "";
+ 
+-if ( isset($git_commit) ) {
+-    echo ""<git_commit>$git_commit</git_commit>\n"";
+-}
+-
+ if ( isset($server_version) ) {
+     echo ""<server_version>$server_version</server_version>\n"";
+ }",Does this mean that the project config should not communicate any codebase details anymore? Why not replace this with the newly generated common tag base?,php,1,1,1
+"@@ -17,7 +17,7 @@ const SiteNotFound = ""not found""
+ const SiteDirMissing = ""app directory missing""
+ 
+ // SiteConfigMissing defines the string used to denote when a site is missing its .ddev/config.yml file.
+-const SiteConfigMissing = "".ddev/config.yml missing""
++const SiteConfigMissing = "".ddev/config.yaml missing""
+ 
+ // SiteStopped defines the string used to denote when a site is in the stopped state.
+ const SiteStopped = ""stopped""","Hmm, thought this would happen if .ddev was missing or docker_compose.yml was missing? Fine with me, don't think it's that important.",php,1,1,1
+"@@ -119,10 +119,6 @@ class SonataMediaExtension extends Extension
+         $pool = $container->getDefinition('sonata.media.pool');
+         $pool->replaceArgument(0, $config['default_context']);
+ 
+-        // this shameless hack is done in order to have one clean configuration
+-        // for adding formats ....
+-        $pool->addMethodCall('__hack__', $config);
+-
+         $strategies = array();
+ 
+         foreach ($config['contexts'] as $name => $settings) {",Why isolate this in a method?,php,1,1,1
+"@@ -3,16 +3,14 @@
+ namespace App;
+ 
+ use Roots\Sage\Container;
+-use Illuminate\Contracts\Container\Container as ContainerContract;
+ 
+ /**
+  * Get the sage container.
+  *
+  * @param string $abstract
+  * @param array  $parameters
+- * @param ContainerContract $container
+- * @return ContainerContract|mixed
+- * @SuppressWarnings(PHPMD.StaticAccess)
++ * @param Container $container
++ * @return Container|mixed
+  */
+ function sage($abstract = null, $parameters = [], ContainerContract $container = null)
+ {",@QWp6t Still have a reference to `ContainerContract` (removed from `use`)! :smiley:,php,0,1,1
+"@@ -50,6 +50,11 @@ class CheckPermission extends BaseInstall
+         'upload_max_filesize' => 2097152
+     );
+ 
++    protected $phpExpectedVerions = array(
++        'min' => '5.5',
++        'max' => '7.4'
++    );
++
+     protected $extensions = array(
+         'curl',
+         'fileinfo',","Maybe putting 7.3 here, and checking max version with > instead of >= would be more clear to the reader",php,1,1,1
+"@@ -121,16 +121,16 @@ class ImageRepository
+     }
+ 
+     /**
+-     * @param array $entities
++     * @param array $entitiesOrEntityIds
+      * @param string $entityName
+      * @return \Shopsys\FrameworkBundle\Component\Image\Image[]
+      */
+-    public function getMainImagesByEntitiesIndexedByEntityId(array $entities, $entityName)
++    public function getMainImagesByEntitiesIndexedByEntityId(array $entitiesOrEntityIds, $entityName)
+     {
+         $queryBuilder = $this->getImageRepository()
+             ->createQueryBuilder('i')
+             ->andWhere('i.entityName = :entityName')->setParameter('entityName', $entityName)
+-            ->andWhere('i.entityId IN (:entities)')->setParameter('entities', $entities)
++            ->andWhere('i.entityId IN (:entities)')->setParameter('entities', $entitiesOrEntityIds)
+             ->addOrderBy('i.position', 'desc')
+             ->addOrderBy('i.id', 'desc');
+ ",Please extract this change to a refactoring commit,php,0,1,1
+"@@ -205,6 +205,7 @@ class SonataMediaExtension extends Extension
+             'targetEntity'  => $config['class']['gallery_has_media'],
+             'cascade'       => array(
+                 'persist',
++                'remove'
+             ),
+             'mappedBy'      => 'media',
+             'orphanRemoval' => false,","that means that all media in a gallery are deleted when the gallery is deleted. is that the intention, can media only be in one single gallery? this affects all doctrine flavors, right? does it make sense for orm and mongo too?",php,1,1,1
+"@@ -47,6 +47,15 @@ collect([
+  * Render page using Blade
+  */
+ add_filter('template_include', function ($template) {
++    collect(['get_header', 'wp_head'])->each(function ($tag) {
++        ob_start();
++        do_action($tag);
++        $c = ob_get_clean();
++        remove_all_actions($tag);
++        add_action($tag, function () use ($c) {
++            echo $c;
++        });
++    });
+     $data = collect(get_body_class())->reduce(function ($data, $class) use ($template) {
+         return apply_filters(""sage/template/{$class}/data"", $data, $template);
+     }, []);","Can we use a variable a little bit better than ""`$c`""?",php,1,1,1
+"@@ -1470,7 +1470,7 @@ function neve_is_new_builder() {
+  * @since 3.0.0
+  */
+ function neve_is_new_skin() {
+-	return get_theme_mod( 'neve_new_skin', false ) === 'new';
++	return get_theme_mod( 'neve_new_skin', 'new' ) === 'new';
+ }
+ 
+ /**",@abaicus I think here we should check if neve_new_skin != 'old' since we are setting explicitly the legacy flag,php,0,1,1
+"@@ -73,6 +73,8 @@ class EasyAdminExtension extends AbstractTypeExtension
+      * To be replaced by the usage of the request stack when 2.3 support is dropped.
+      *
+      * @param Request|null $request
++     *
++     * @return null
+      */
+     public function setRequest(Request $request = null)
+     {","Maybe this one can be ignored, gives no value.",php,1,1,1
+"@@ -210,10 +210,18 @@ class FileProvider extends BaseProvider implements FileProviderInterface
+ 
+     public function generatePrivateUrl(MediaInterface $media, $format)
+     {
+-        if (MediaProviderInterface::FORMAT_REFERENCE === $format) {
++        if (self::FORMAT_REFERENCE === $format) {
+             return $this->getReferenceImage($media);
+         }
+ 
++        // throw new \InvalidArgumentException(sprintf(
++        //     'Argument 2 passed to ""%s()"" only accepts the value ""%s"", ""%s"" given.',
++        //     __METHOD__,
++        //     self::FORMAT_REFERENCE,
++        //     $format
++        // ));
++        // NEXT_MAJOR: Uncomment the previous exception and remove the `return false` statement.
++
+         return false;
+     }
+ ",Should we trigger a deprecation then ?,php,1,1,1
+"@@ -42,6 +42,16 @@ class ExportGridBuilder implements GridBuilderInterface
+                         'export' => '{id}',
+                     ],
+                 ],
++                'download' => [
++                    'privilege' => 'CHANNEL_READ',
++                    'show' => ['system' => false],
++                    'route' => 'ergonode_channel_export_download',
++                    'parameters' => [
++                        'language' => $language->getCode(),
++                        'channel' => '{channel_id}',
++                        'export' => '{id}',
++                    ],
++                ],
+             ]))
+             ->orderBy('started_at', 'DESC');
+ ",This will add this action to every export and not every export will have file to download..,php,1,1,1
+"@@ -3,10 +3,15 @@
+ 
+ import collections
+ import functools
++from typing import TYPE_CHECKING, Dict, List, Union
+ 
+ from pylint import reporters
+ from pylint.lint.utils import _patch_sys_path
+ from pylint.message import Message
++from pylint.typing import CheckerStats
++
++if TYPE_CHECKING:
++    from typing import Counter  # typing.Counter added in Python 3.6.1
+ 
+ try:
+     import multiprocessing","This could also be a `sys.version_info` guard with import from `typing_extensions`. In that case the quotes around `Counter` wouldn't be necessary. Leave that up to you, if you what to change it. Support for `3.6` will end soon anyway, so might not be that important.",py,1,1,1
+"@@ -443,7 +443,9 @@ class SparkFrameMethods(object):
+         """"""
+         from databricks.koalas.frame import CachedDataFrame
+ 
+-        self._kdf._internal = self._kdf._internal.resolved_copy
++        self._kdf._update_internal_frame(
++            self._kdf._internal.resolved_copy, requires_same_anchor=False
++        )
+         return CachedDataFrame(self._kdf._internal)
+ 
+     def persist(self, storage_level=StorageLevel.MEMORY_AND_DISK):",When do we need to set `requires_same_anchor=False`?,py,1,1,1
+"@@ -421,11 +421,10 @@ class NVDAObject(documentBase.TextContainerObject, baseObject.ScriptableObject,
+ 	#: Type definition for auto prop '_get_role'
+ 	role: int
+ 
+-	def _get_role(self) -> int:
++	def _get_role(self) -> controlTypes.Role:
+ 		""""""The role or type of control this object represents (example: button, list, dialog).
+-		@return: a ROLE_* constant from L{controlTypes}
+ 		""""""  
+-		return controlTypes.ROLE_UNKNOWN
++		return controlTypes.Role.UNKNOWN
+ 
+ 	def _get_roleText(self):
+ 		""""""",This is not correct anymore as the type of the role has changed to `controlTypes.Role`,py,1,1,1
+"@@ -607,6 +607,10 @@ public class RegistrationRequest {
+           + HUB_HOST + "" X -"" + HUB_PORT + "" 5555. The specified config was -"" + HUB_HOST + "" ""
+           + hub + "" -"" + HUB_PORT + "" "" + port);
+     }
++    
++    if(port==-1){
++    	throw new GridConfigurationException(""No port was specified in -hub parameter. Example - http://""+hub+"":4444/grid/register"");
++    }
+   }
+ 
+ ","I think if they _don't_ specify a port, we should assume grid default (which is 4444)",py,1,1,1
+"@@ -118,6 +118,9 @@ def get_argparser():
+                        action='append')
+     debug.add_argument('--qt-flag', help=""Pass an argument to Qt as flag."",
+                        nargs=1, action='append')
++    debug.add_argument('--debug-flag', type=debug_flag_error,
++                       help=""Pass name of debugging feature to be turned on."",
++                       nargs=1, action='append')
+     parser.add_argument('command', nargs='*', help=""Commands to execute on ""
+                         ""startup."", metavar=':command')
+     # URLs will actually be in command",You'll also need to add a `dest='debug_flags'` here - otherwise you'd need to adjust the checks to do `... in self._args.debug_flag:` which reads a bit odd.,py,1,1,1
+"@@ -46,7 +46,7 @@ def open_browser(url: str) -> bool:
+     browsers = (
+         ""windows-default"", ""macosx"",
+         ""wslview %s"",
+-        ""x-www-browser %s"", ""gnome-open %s"",
++        ""x-www-browser %s"", ""gnome-open %s"", ""xdg-open"",
+         ""google-chrome"", ""chrome"", ""chromium"", ""chromium-browser"",
+         ""firefox"", ""opera"", ""safari"",
+     )",Is this related to the Docker change? I don't think this even works when mitmproxy is running inside a container...,py,1,1,1
+"@@ -0,0 +1,15 @@
++# -*- coding: utf-8 -*-
++
++# Licensed under the GPL: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
++# For details: https://github.com/PyCQA/pylint/blob/master/COPYING
++
++import textwrap
++
++
++def normalize_text(text, line_len=80, indent=""""):
++    """"""Wrap the text on the given line length.""""""
++    return ""\n"".join(
++        textwrap.wrap(
++            text, width=line_len, initial_indent=indent, subsequent_indent=indent
++        )
++    )","Seems odd to have a module just for this function, is there a way to move it somewhere else?",py,1,1,1
+"@@ -75,6 +75,16 @@ class Resize(object):
+ 
+     @staticmethod
+     def random_select(img_scales):
++        """"""Randomly select an img_scale when ``multiscale_mode=='value'``
++
++        Args:
++            img_scales (list[tuple]): Images scales for selection.
++
++        Returns:
++            tuple: Image scale selected.
++            int: The index of selected image scale.
++        """"""
++
+         assert mmcv.is_list_of(img_scales, tuple)
+         scale_idx = np.random.randint(len(img_scales))
+         img_scale = img_scales[scale_idx]",Randomly select an image scale from the given candidates. (There is no restrict that it can only be used with ``multiscale_mode=='value'``),py,1,1,1
+"@@ -8,10 +8,11 @@ from mmdet.core import (anchor_inside_flags, build_anchor_generator,
+                         multiclass_nms, unmap)
+ from ..builder import HEADS, build_loss
+ from .base_dense_head import BaseDenseHead
++from .dense_test_mixins import BBoxTestMixin
+ 
+ 
+ @HEADS.register_module()
+-class AnchorHead(BaseDenseHead):
++class AnchorHead(BaseDenseHead, BBoxTestMixin):
+     """"""Anchor-based head (RPN, RetinaNet, SSD, etc.).
+ 
+     Args:","RPNHead has a mixin `RPNTestMixin`, can these two mixins somehow be merged to avoid confusion?",py,1,1,1
+"@@ -293,10 +293,9 @@ class ScalarEncoder(Encoder):
+ 
+   def _checkReasonableSettings(self):
+     """"""(helper function) check if the settings are reasonable for SP to work""""""
+-    # checks for likely mistakes in encoder settings
+     if self.w < 21:
+-      raise ValueError(""Number of bits in the SDR (%d) must be greater than 2, and recommended >= 21 (use forced=True to override)""
+-                         % self.w)
++      raise ValueError(""Number of bits in the SDR (%d) must be greater than 21 ""
++        ""and recommended >= 21 (use forced=True to override)."" % self.w)
+ 
+ 
+   def getDecoderOutputFieldTypes(self):",This statement repeats itself: > Number of bits in the SDR (%d) must be greater than 21 and recommended >= 21 Can you simplify to: > Number of bits in the SDR (%d) must be >= 21,py,1,1,1
+"@@ -43,16 +43,16 @@ def insert_user_stats(user_id, artists, recordings, releases, artist_count):
+ 
+     artist_stats = {
+         'count': artist_count,
+-        'all_time': artists,
++        'prev_month': artists,
+     }
+ 
+     recording_stats = {
+-        'all_time': recordings,
++        'prev_month': recordings,
+     }
+ 
+ 
+     release_stats = {
+-        'all_time': releases,
++        'prev_month': releases,
+     }
+ 
+ ","We should prolly just specify the month here in the key, like `2019-01` so that we know exactly which month the data is for. With prev month, we might have data for different months for different users.",py,1,1,1
+"@@ -9,12 +9,13 @@ try:
+     old_bokeh = True
+ except ImportError:
+     from bokeh.models import Component as PlotObject
+-    from bokeh._json_encoder import serialize_json
++    from bokeh.core.json_encoder import serialize_json
+     old_bokeh = False
+ 
+ import param
+ 
+ from ...core.data import ArrayColumns
++from .util import models_to_json
+ 
+ 
+ class Callback(param.ParameterizedFunction):",`old_bokeh` isn't a great name as one day the latest version will become old! I would consider stating the version explicitly...i.e `bokeh_XX`.,py,1,1,1
+"@@ -779,7 +779,7 @@ class GlobalCommands(ScriptableObject):
+                 if scriptHandler.getLastScriptRepeatCount()>=1:
+                         if curObject.TextInfo!=NVDAObjectTextInfo:
+                                 textList=[]
+-                                if curObject.name and isinstance(curObject.name, basestring) and not curObject.name.isspace():
++                                if curObject.name and isinstance(curObject.name, str) and not curObject.name.isspace():
+                                         textList.append(curObject.name)
+                                 try:
+                                         info=curObject.makeTextInfo(textInfos.POSITION_SELECTION)",Could you also split this one while at it?,py,1,1,1
+"@@ -62,14 +62,13 @@ class Swagger(object):
+         self.responses = {}
+         self.paths = OrderedDict()
+ 
+-    def _load(self, swagger_spec_path):
+-        with open(swagger_spec_path) as fds:
+-            swagger_content = fds.read()
++    def _load(self, swagger_spec_fd):
++        swagger_content = swagger_spec_fd.read()
+         try:
+             self.swagger = yaml_ordered_load(swagger_content, yaml.SafeLoader)
+-            self.log.info(""Loaded Swagger spec %s"", swagger_spec_path)
++            self.log.info(""Loaded Swagger spec %s"", swagger_spec_fd)
+         except IOError as exc:
+-            raise TaurusConfigError(""Error when parsing Swagger file '%s': %s"" % (swagger_spec_path, exc))
++            raise TaurusConfigError(""Error when parsing Swagger file '%s': %s"" % (swagger_spec_fd, exc))
+ 
+     def _validate_swagger_version(self):
+         swagger_version = self.swagger.get(""swagger"", self.swagger.get(""openapi""))","Actually, it's not necessary to call `read()` on a stream, as `yaml_ordered_load()` already accepts both strings and streams.",py,1,1,1
+"@@ -211,6 +211,10 @@ class Task(object):
+ 
+     _event_callbacks = {}
+ 
++    # Priority of the task: the scheduler should favor available
++    # tasks with higher priority values first.
++    priority = 0
++
+     @classmethod
+     def event_handler(cls, event):
+         """""" Decorator for adding event handlers """"""",This name conflicts with luigi.hadoop.BaseHadoopJobTask which uses priority for hadoop scheduling priority,py,1,1,1
+"@@ -27,6 +27,12 @@ class LoadImageFromFile(object):
+         results['img'] = img
+         results['img_shape'] = img.shape
+         results['ori_shape'] = img.shape
++        # Set initial values for default meta_keys
++        results['pad_shape'] = img.shape
++        results['flip'] = False
++        results['scale_factor'] = 1.0
++        cnum = 1 if len(img.shape) < 3 else img.shape[2]
++        results['img_norm_cfg'] = [[0.0] * cnum, [1.0] * cnum, False]
+         return results
+ 
+     def __repr__(self):",Use a more specific variable name like `num_channels`.,py,1,1,1
+"@@ -112,6 +112,10 @@ class AddonHalt(MitmproxyException):
+     pass
+ 
+ 
++class TypeError(MitmproxyException):
++    pass
++
++
+ """"""
+     Net-layer exceptions
+ """"""",This looks wrong - we should use a regular Python TypeError?,py,1,1,1
+"@@ -0,0 +1,6 @@
++import ConfigParser
++import os,binascii
++
++cfgfile = open(""/{{cookiecutter.repo_name}}/{{cookiecutter.repo_name}}/{{cookiecutter.repo_name}}.ini"",'w') #enter path of file
++parser = ConfigParser.SafeConfigParser()
++parser.set('authentication_configuration','kinto.userid_hmac_secret', binascii.b2a_hex(os.urandom(8)))","The leading `/` in the path here, migth be the source of your trouble",py,1,1,1
+"@@ -66,7 +66,8 @@ class PythonModelWrapper(object):
+     @lazy_property
+     def _model_udf(self):
+         spark = default_session()
+-        return spark_udf(spark, self._path, self._run_id, result_type=self._return_type)
++        model_uri = ""runs:/{run_id}/{path}"".format(run_id=self._run_id, path=self._path)
++        return spark_udf(spark, model_uri=model_uri, result_type=self._return_type)
+ 
+     def __str__(self):
+         return ""PythonModelWrapper({})"".format(str(self._model))","Seems like `run_id` is optional according to `load_model` signature, what if it's `None`?",py,1,1,1
+"@@ -0,0 +1,15 @@
++""""""Test case for typevar-name-missing-variance with default settings""""""
++
++from typing import TypeVar
++
++# Name set by regex pattern
++TypeVarsShouldBeLikeThis = TypeVar(""TypeVarsShouldBeLikeThis"")
++TypeVarsShouldBeLikeThis_contra = TypeVar(
++    ""TypeVarsShouldBeLikeThis_contra"", contravariant=True
++)
++TypeVarsShouldBeLikeThis_co = TypeVar(""TypeVarsShouldBeLikeThis_co"", covariant=True)
++
++# Name using the standard style
++T_GoodName = TypeVar(""T_GoodName"")  # [invalid-name]
++T_GoodName_co = TypeVar(""T_GoodName_co"", covariant=True)  # [invalid-name]
++T_GoodName_contra = TypeVar(""T_GoodName_contra"", contravariant=True)  # [invalid-name]",Better to remove the `T_` prefix,py,1,0,1
+"@@ -47,15 +47,12 @@ import json
+ import random
+ import tempfile
+ import unittest2 as unittest
++from pkg_resources import resource_filename
+ 
+-from nupic.data.datasethelpers import findDataset
+ from nupic.data.file_record_stream import FileRecordStream
+ from nupic.engine import Network
+-from nupic.research import fdrutilities as fdrutils
+ from nupic.encoders import MultiEncoder
+-from nupic.regions.RecordSensorFilters.ModifyFields import ModifyFields
+-from nupic.support.unittesthelpers.testcasebase import (TestCaseBase,
+-                                                        TestOptionParser)
++from nupic.support.unittesthelpers.testcasebase import TestCaseBase
+ 
+ _VERBOSITY = 0         # how chatty the unit tests should be
+ _SEED = 35             # the random seed used throughout",Cleaned up unused imports.,py,1,0,1
+"@@ -121,6 +121,10 @@ class espeak_VOICE(Structure):
+ 	def __eq__(self, other):
+ 		return isinstance(other, type(self)) and addressof(self) == addressof(other)
+ 
++# constants that can be returned by espeak_callback
++callback_continue_synthesis=0
++callback_abort_synthesis=1
++
+ t_espeak_callback=CFUNCTYPE(c_int,POINTER(c_short),c_int,POINTER(espeak_EVENT))
+ 
+ @t_espeak_callback",Great! You worked out what these values were for. I think they should be in caps though.,py,1,1,1
+"@@ -101,7 +101,8 @@ def get_template_body(req_data):
+     url = req_data.get('TemplateURL')
+     if url:
+         response = run_safe(lambda: safe_requests.get(url, verify=False))
+-        if not response or response.status_code >= 400:
++        # check error codes, and code 301 - fixes https://github.com/localstack/localstack/issues/1884
++        if not response or response.status_code == 301 or response.status_code >= 400:
+             # check if this is an S3 URL, then get the file directly from there
+             if '://localhost' in url or re.match(r'.*s3(\-website)?\.([^\.]+\.)?amazonaws.com.*', url):
+                 parsed_path = urlparse.urlparse(url).path.lstrip('/')",Should this check for ://localhost instead be checking for HOSTNAME or HOSTNAME_EXTERNAL?,py,1,1,1
+"@@ -21,7 +21,9 @@
+ 
+ """"""Anomaly-related algorithms.""""""
+ 
++import collections
+ import numpy
++from types import FunctionType
+ 
+ from nupic.algorithms.anomaly_likelihood import AnomalyLikelihood
+ from nupic.utils import MovingAverage","`collections` is newly imported, but not used. Please run your changes through pylint with nupic pylint configuration and fix findings related to your changes.",py,1,1,1
+"@@ -76,7 +76,7 @@ def check_stepfunctions(expect_shutdown=False, print_error=False):
+     out = None
+     try:
+         # check Kinesis
+-        wait_for_port_open(config.LOCAL_PORT_STEPFUNCTIONS)
++        wait_for_port_open(config.LOCAL_PORT_STEPFUNCTIONS, sleep_time=2)
+         endpoint_url = f""http://127.0.0.1:{config.LOCAL_PORT_STEPFUNCTIONS}""
+         out = aws_stack.connect_to_service(
+             service_name=""stepfunctions"", endpoint_url=endpoint_url",Noted some interesting race conditions when the sleep time is too small on M1. Might be creating a tight loop blocking the actual startup. This seems to make it start every time.,py,1,1,1
+"@@ -47,6 +47,7 @@ schemaVersion = integer(min=0, default={latestSchemaVersion})
+ # Audio settings
+ [audio]
+         audioDuckingMode = integer(default=0)
++        idleCloseDelay = integer(default=10000,min=0,max=86400000)
+ 
+ # Braille settings
+ [braille]","Wow, a day is a bit long isn't it? May be leave out the max, or set it somewhere around an hour.",py,1,1,1
+"@@ -231,7 +231,9 @@ def listComPorts(onlyAvailable=True):
+ 			):
+ 				# Ignore ERROR_INSUFFICIENT_BUFFER
+ 				if ctypes.GetLastError() != ERROR_INSUFFICIENT_BUFFER:
+-					raise ctypes.WinError()
++					# #6007: SPDRP_FRIENDLYNAME sometimes doesn't exist/isn't valid.
++					log.debugWarning(""Couldn't get SPDRP_FRIENDLYNAME for %s: %s"" % (port, ctypes.WinError()))
++					entry[""friendlyName""] = port
+ 			else:
+ 				entry[""friendlyName""] = buf.value
+ ",Unrelated to your change. While it might be unlikely I think it would be a good idea to log an insufficient buffer error.,py,0,1,1
+"@@ -888,6 +888,17 @@ class WebDriver(BaseWebDriver):
+         """"""
+         self.execute(Command.MINIMIZE_WINDOW)
+ 
++    def print_page(self, print_option_arg = None):
++        """"""
++        Takes PDF of the current page.
++        The driver makes a best effort to return a PDF based on the provided parameters.
++        """"""
++        options = {}
++        if print_option_arg:
++            options = print_option_arg.print_options
++
++        return self.execute(Command.PRINT_PAGE, options)['value']
++
+     @property
+     def switch_to(self):
+         """"""",Let's not use a form of hungarian notation in naming our variables,py,1,1,1
+"@@ -297,6 +297,14 @@ class SensorExecutionArgs(
+         )
+ 
+ 
++@whitelist_for_serdes
++class NotebookDataArgs(namedtuple(""_NotebookDataArgs"", ""notebook_path"")):
++    def __new__(cls, notebook_path):
++        return super(NotebookDataArgs, cls).__new__(
++            cls, notebook_path=check.str_param(notebook_path, ""notebook_path"")
++        )
++
++
+ @whitelist_for_serdes
+ class ExternalJobArgs(
+     namedtuple(",slightly dubious about having an object wrapper for a string param - seems unlikely we would want other serdes objects as args here - if ever any other args,py,1,1,1
+"@@ -689,8 +689,15 @@ class YOLACTProtonet(BaseModule):
+         prototypes = prototypes.permute(0, 2, 3, 1).contiguous()
+ 
+         num_imgs = x.size(0)
++
++        # The reason for not using self.is_training is that
++        # val workflow will have a dimension mismatch error.
++        # Note that this writing method is very tricky.
++        # Fix https://github.com/open-mmlab/mmdetection/issues/5978
++        is_training = (coeff_pred[0].dim() == 4)
++
+         # Training state
+-        if self.training:
++        if is_training:
+             coeff_pred_list = []
+             for coeff_pred_per_level in coeff_pred:
+                 coeff_pred_per_level = \",use another name rather than is_training.,py,1,0,1
+"@@ -21,6 +21,8 @@ import com.google.common.base.Charsets;
+ import com.google.common.io.ByteStreams;
+ import com.google.common.net.MediaType;
+ 
++import com.sun.org.glassfish.gmbal.ManagedObject;
++
+ import org.apache.http.Header;
+ import org.apache.http.HttpEntity;
+ import org.apache.http.HttpHost;","Again, you don't want to depend on glassfish.",py,1,0,1
+"@@ -94,7 +94,7 @@ def test_index_view_at_path_prefix():
+             res = client.get(""/dagster-path/"")
+             assert res.status_code == 200
+             assert b""You need to enable JavaScript to run this app"" in res.data
+-            assert b'{""pathPrefix"": ""/dagster-path""}' in res.data
++            assert b'""pathPrefix"": ""/dagster-path""' in res.data
+ 
+ 
+ def test_graphql_view():",Also add an asset for the telemetry value?,py,1,1,1
+"@@ -29,7 +29,7 @@ from boto.s3.key import Key
+ from luigi.s3 import S3Client
+ 
+ 
+-if sys.version_info[:2] == (3, 4):
++if (3, 4, 0) <= sys.version_info[:3] < (3, 4, 3):
+     # spulec/moto#308
+     mock_s3 = unittest.skip('moto mock doesn\'t work with python3.4')
+ ","Out of curiosity, why it doesn't work on < Python 3.4.3?",py,1,0,1
+"@@ -760,6 +760,14 @@ class ChannelDB(SqlDB):
+     def get_node_info_for_node_id(self, node_id: bytes) -> Optional['NodeInfo']:
+         return self._nodes.get(node_id)
+ 
++    def get_node_infos(self) -> Dict[bytes, NodeInfo]:
++        with self.lock:
++            return self._nodes
++
++    def get_node_policies(self) -> Dict[Tuple[bytes, ShortChannelID], Policy]:
++        with self.lock:
++            return self._policies
++
+     def to_dict(self) -> dict:
+         """""" Generates a graph representation in terms of a dictionary.
+ ",should we create a copy here? the lock as-is does not do much; the dict is passed by reference,py,1,1,1
+"@@ -29,14 +29,14 @@ def test_config_build_detector():
+     from mmdet.models import build_detector
+ 
+     config_dpath = _get_config_directory()
+-    print('Found config_dpath = {!r}'.format(config_dpath))
++    print(f'Found config_dpath = {config_dpath!r}')
+ 
+     import glob
+     config_fpaths = list(glob.glob(join(config_dpath, '**', '*.py')))
+     config_fpaths = [p for p in config_fpaths if p.find('_base_') == -1]
+     config_names = [relpath(p, config_dpath) for p in config_fpaths]
+ 
+-    print('Using {} config files'.format(len(config_names)))
++    print(f'Using {len(config_names)} config files')
+ 
+     for config_fname in config_names:
+         config_fpath = join(config_dpath, config_fname)",The `!r` is unnecessary.,py,1,0,1
+"@@ -102,11 +102,14 @@ class TaskProcess(multiprocessing.Process):
+         self.timeout_time = time.time() + worker_timeout if worker_timeout else None
+ 
+     def _run_get_new_deps(self):
++        run_again = False
+         try:
+             task_gen = self.task.run(tracking_url_callback=self.tracking_url_callback)
+         except TypeError as ex:
+             if 'unexpected keyword argument' not in getattr(ex, 'message', ex.args[0]):
+                 raise
++            run_again = True
++        if run_again:
+             task_gen = self.task.run()
+         if not isinstance(task_gen, types.GeneratorType):
+             return None",what is this if statement - it's pretty horrible,py,1,0,1
+"@@ -2192,8 +2192,8 @@ defaultdict(<class 'list'>, {'col..., 'col...})]
+         internal = self._internal.copy(sdf=sdf, data_columns=[c.name for c in applied])
+         return DataFrame(internal)
+ 
+-    # TODO: add axis parameter
+-    def diff(self, periods=1):
++    # TODO: axis should support 1 or 'columns' either
++    def diff(self, periods: int = 1, axis: int = 0):
+         """"""
+         First discrete difference of element.
+ ",At this moment?,py,0,0,0
+"@@ -16,6 +16,8 @@ MAX_HEAP_SIZE = ""256m""
+ # todo: will be replaced with plugin mechanism
+ PROCESS_THREAD = None
+ 
++default_region = ""us-east-1""
++
+ 
+ def get_command(backend_port):
+     cmd = (",Let's better remove this and use `stepfunctions_listener.default_region` in line 30 below.. (We can fix this in a follow-up PR..),py,0,1,1
+"@@ -76,7 +76,7 @@ public class TestEdgeDriver extends RemoteWebDriver implements WebStorage, Locat
+                 .findFirst().orElseThrow(WebDriverException::new);
+ 
+         service = (EdgeDriverService) builder.withVerbose(true).withLogFile(logFile.toFile()).build();
+-        LOG.info(""edgedriver will log to "" + logFile);
++        LOG.fine(""edgedriver will log to "" + logFile);
+         service.start();
+         Runtime.getRuntime().addShutdownHook(new Thread(() -> service.stop()));
+       }",This is deliberately at this level.,py,1,0,1
+"@@ -853,7 +853,11 @@ class UIA(Window):
+ 		# Windows 8.x toast, although a form of tool tip, is covered separately.
+ 		elif UIAControlType==UIAHandler.UIA_ToolTipControlTypeId:
+ 			clsList.append(ToolTip)
+-		elif self.UIAElement.cachedFrameworkID in (""InternetExplorer"",""MicrosoftEdge""):
++		elif(
++			self.UIAElement.cachedFrameworkID in (""InternetExplorer"", ""MicrosoftEdge"")
++			# But not for Internet Explorer
++			and not self.appModule.appName == 'iexplore'
++		):
+ 			from . import edge
+ 			if UIAClassName in (""Internet Explorer_Server"",""WebView"") and self.role==controlTypes.ROLE_PANE:
+ 				clsList.append(edge.EdgeHTMLRootContainer)","I'm pretty confident that Internet Explorer can be removed here, as that would only be true for the mshtml implementation, not edgeHTML. And, we would want this fix for any mshtml embedding, not just the Internet Explorer application.",py,1,1,1
+"@@ -162,9 +162,9 @@ class FCOSHead(nn.Module):
+         pos_bbox_preds = flatten_bbox_preds[pos_inds]
+         pos_bbox_targets = flatten_bbox_targets[pos_inds]
+         pos_centerness = flatten_centerness[pos_inds]
+-        pos_centerness_targets = self.centerness_target(pos_bbox_targets)
+ 
+         if num_pos > 0:
++            pos_centerness_targets = self.centerness_target(pos_bbox_targets)
+             pos_points = flatten_points[pos_inds]
+             pos_decoded_bbox_preds = distance2bbox(pos_points, pos_bbox_preds)
+             pos_decoded_target_preds = distance2bbox(pos_points,",We can also move `pos_bbox_targets = flatten_bbox_targets[pos_inds]` to here.,py,1,1,1
+"@@ -717,7 +717,8 @@ class UserResource(object):
+ 
+         :raises: :class:`pyramid.httpexceptions.HTTPBadRequest`
+         """"""
+-        if not self.model.id_generator.match(six.text_type(record_id)):
++        is_string = isinstance(record_id, six.text_type)
++        if not is_string or not self.model.id_generator.match(record_id):
+             error_details = {
+                 'location': 'path',
+                 'description': ""Invalid record id""",I think the right fix would be to convert the id as a string rather than raising an error.,py,1,1,1
+"@@ -424,6 +424,17 @@ public class NodeTest {
+     return baseDir;
+   }
+ 
++  //Test that the draining command sets Host status to DRAINING
++  @Test
++  public void drainingNodeStatusDraining() {
++
++  }
++
++  //Test that a draining node doesn't accept new sessions by any means
++  //Test that a draining node continues to run its sessions and accept new WebDriver commands
++  //Test that a node will shut down once all sessions are finished
++  //Test that RemoteNode will post the correct command oto the LocalNode
++
+   private CreateSessionRequest createSessionRequest(Capabilities caps) {
+     return new CreateSessionRequest(
+             ImmutableSet.copyOf(Dialect.values()),",Is this only to set the node to draining?   I think we can do that inside `Before` or something?,py,1,1,1
+"@@ -400,7 +400,7 @@ class HadoopJobRunner(JobRunner):
+ 
+     def __init__(self, streaming_jar, modules=None, streaming_args=None,
+                  libjars=None, libjars_in_hdfs=None, jobconfs=None,
+-                 input_format=None, output_format=None,
++                 archives=None, input_format=None, output_format=None,
+                  end_job_with_atomic_move_dir=True):
+         def get(x, default):
+             return x is not None and x or default",Why not add as last argument?,py,1,0,1
+"@@ -138,6 +138,8 @@ class Register(abc.ABCMeta):
+         return global_params.iteritems()
+ 
+ 
++_event_callbacks = {}
++
+ class Task(object):
+     __metaclass__ = Register
+ ",I think this should go into the Task class.,py,1,0,1
+"@@ -345,7 +345,7 @@ class GFLHead(AnchorHead):
+          bbox_weights_list, num_total_pos, num_total_neg) = cls_reg_targets
+ 
+         num_total_samples = reduce_mean(
+-            torch.tensor(num_total_pos).cuda()).item()
++            torch.tensor(num_total_pos).float().cuda()).item()
+         num_total_samples = max(num_total_samples, 1.0)
+ 
+         losses_cls, losses_bbox, losses_dfl,\","`torch.tensor(num_total_pos, dtype=torch.float, device=device)`",py,1,0,0
+"@@ -11,6 +11,8 @@ from .transforms import (ImageTransform, BboxTransform, MaskTransform,
+ from .utils import to_tensor, random_scale
+ from .extra_aug import ExtraAugmentation
+ 
++from imagecorruptions import corrupt
++
+ 
+ @DATASETS.register_module
+ class CustomDataset(Dataset):",Third-party imports may be moved before relative imports.,py,1,1,1
+"@@ -926,9 +926,12 @@ a metaclass class method."",
+                     continue
+                 if isinstance(attribute.expr, nodes.Name) and attribute.expr.name in (
+                     ""self"",
++                    ""cls"",
+                     node.name,
+                 ):
+-                    # self.__attrname / node_name.__attrname
++                    # self.__attrname
++                    # cls.__attrname
++                    # node_name.__attrname
+                     break
+                 if isinstance(attribute.expr, nodes.Call):
+                     # type(self).__attrname","I think we already fixed something really similar in another MR, we have a duplication between this and ``child.expr.name in (""self"", ""cls"", node.name)`` line 969/972.",py,1,1,1
+"@@ -125,6 +125,18 @@ class Index(IndexOpsMixin):
+         """""" Returns the data type as defined by Spark, as a Spark DataType object.""""""
+         return self.to_series().spark_type
+ 
++    @property
++    def has_duplicates(self) -> bool:
++        """"""
++        If index has duplicates, return True, otherwise False.
++        """"""
++        idx_column = self._kdf._sdf.select(self._scol)
++        deduplicate_idx_column = idx_column.drop_duplicates()
++
++        if idx_column.count() == deduplicate_idx_column.count():
++            return False
++        return True
++
+     @property
+     def name(self) -> Union[str, Tuple[str, ...]]:
+         """"""Return name of the Index.""""""",This runs Spark jobs twice. Can we use `F.count` and `F.countDistinct` instead?,py,1,1,1
+"@@ -37,6 +37,15 @@ class MonitorMixinBase(object):
+ 
+ 
+   def __init__(self, *args, **kwargs):
++    """"""
++    Note: If you set the kwarg ""__name__"", then pretty-printing of traces and
++          metrics will include the name you specify as a tag before every title.
++    """"""
++    self.name = None
++    if ""__name__"" in kwargs:
++      self.name = kwargs[""__name__""]
++      del kwargs[""__name__""]
++
+     super(MonitorMixinBase, self).__init__(*args, **kwargs)
+ 
+     # Mapping from key (string) => trace (Trace)",It would be better if this kwarg had some unique prefix rather than following this pattern.,py,1,1,1
+"@@ -76,7 +76,7 @@ public class ProtocolHandshake {
+ 
+         if (result.isPresent()) {
+           Result toReturn = result.get();
+-          LOG.info(String.format(""Detected dialect: %s"", toReturn.dialect));
++          LOG.finest(String.format(""Detected dialect: %s"", toReturn.dialect));
+           return toReturn;
+         }
+       }",This is an incorrect change. The dialect spoken is an important part of the handshake and should be communicated to users.,py,1,1,1
+"@@ -181,6 +181,7 @@ def do_register_localstack_plugins():
+             listener=stepfunctions_listener.UPDATE_STEPFUNCTIONS))
+ 
+     except Exception as e:
++        print('exception', e)
+         if not os.environ.get(ENV_SCRIPT_STARTING_DOCKER):
+             print('Unable to register plugins: %s' % e)
+             sys.stdout.flush()",Let's remove this `print` please.,py,1,0,1
+"@@ -106,9 +106,12 @@ def get_listens(user_name):
+     if time_range < 1 or time_range > MAX_TIME_RANGE:
+         log_raise_400(""time_range must be between 1 and %d."" % MAX_TIME_RANGE)
+ 
+-    # if no max given, use now()
+     if max_ts and min_ts:
+-        log_raise_400(""You may only specify max_ts or min_ts, not both."")
++        if max_ts < min_ts:
++            log_raise_400(""max_ts should be greater than min_ts"")
++        
++        if (max_ts - min_ts) > MAX_TIME_RANGE * 432000:
++            log_raise_400(""time_range specified by min_ts and max_ts should be less than %d."" % MAX_TIME_RANGE)
+ 
+     db_conn = webserver.create_timescale(current_app)
+     (min_ts_per_user, max_ts_per_user) = db_conn.get_timestamps_for_user(user_name)","what does this number mean? Is it number of seconds in a day? If so, it'd be good to add a constant at the beginning of the file with a name that describes its purpose.",py,1,1,1
+"@@ -58,8 +58,9 @@ class DeltaXYWHBBoxCoder(BaseBBoxCoder):
+         """"""Apply transformation `pred_bboxes` to `boxes`.
+ 
+         Args:
+-            boxes (torch.Tensor): Basic boxes.
+-            pred_bboxes (torch.Tensor): Encoded boxes with shape
++            bboxes (torch.Tensor): Basic boxes. Shape (B, N, 4) or (N, 4)
++            pred_bboxes (torch.Tensor): Encoded boxes with
++               shape (B, N, 4) or (N, 4)
+             max_shape (tuple[int], optional): Maximum shape of boxes.
+                 Defaults to None.
+             wh_ratio_clip (float, optional): The allowed ratio between",max_shape may be tuple[tuple],py,1,0,1
+"@@ -443,6 +443,8 @@ class ImportsChecker(BaseChecker):
+         for name, _ in node.names:
+             if name != '*':
+                 self._add_imported_module(node, '%s.%s' % (imported_module.name, name))
++            else:
++                self._add_imported_module(node, imported_module.name)
+ 
+     @check_messages(*(MSGS.keys()))
+     def leave_module(self, node):","This makes sense, don't know why it was ignored previously",py,1,1,1
+"@@ -43,7 +43,7 @@ class BoundZmqEventBus implements EventBus {
+     Addresses xpubAddr = deriveAddresses(address, publishConnection);
+     Addresses xsubAddr = deriveAddresses(address, subscribeConnection);
+ 
+-    LOG.info(String.format(""XPUB binding to %s, XSUB binding to %s"", xpubAddr, xsubAddr));
++    LOG.finest(String.format(""XPUB binding to %s, XSUB binding to %s"", xpubAddr, xsubAddr));
+ 
+     xpub = context.createSocket(SocketType.XPUB);
+     xpub.setImmediate(true);",This change is unhelpful: it precludes users from knowing which ports are being used for what purpose within the system.,py,1,1,1
+"@@ -177,6 +177,15 @@ class PyRegion(object):
+     name: the name of the output
+     """"""
+ 
++  def getAlgorithm(self):
++    """"""
++    Returns the underlying algorithm that is performing the computation.
++    This method should be overridden by the region subclass.
++
++    Returns None if there is no underlying algorithm for the region.
++    """"""
++    return None
++
+   def getParameter(self, name, index):
+     """"""Default implementation that return an attribute with the requested name
+ ","I don't think this makes sense to add. The return value for a region of unknown type is an unknown object. It would only make sense if we required all regions to have an ""algorithm"" object that subclasses the some common base class.",py,1,1,1
+"@@ -133,10 +133,13 @@ def get_port_from_custom_rules(method, path, data, headers):
+     if re.match(r'^/queue/[a-zA-Z0-9_-]+$', path):
+         return config.PORT_SQS
+ 
++    if path == '/' and to_bytes('QueueName=') in data_bytes:
++        return config.PORT_SQS
++
+     # TODO: move S3 public URLs to a separate port/endpoint, OR check ACLs here first
+     stripped = path.strip('/')
+     data_bytes = to_bytes(data or '')
+-    if method == 'GET' and '/' in stripped:
++    if method in ['GET', 'HEAD'] and '/' in stripped:
+         # assume that this is an S3 GET request with URL path `/<bucket>/<key ...>`
+         return config.PORT_S3
+ ",Move this above 136 to fix the linting error,py,1,1,1
+"@@ -34,7 +34,7 @@ module Beaker
+       install_update_server = answer_for(@options, :q_install_update_server, 'y')
+ 
+       the_answers.map do |key, value|
+-        the_answers[key][:q_update_server_host] = update_server_host
++        the_answers[key][:q_update_server_host] = update_server_host if the_answers[key]
+       end
+       the_answers[master.name][:q_install_update_server] = install_update_server
+ ",In what case is this answer empty?,rb,1,1,1
+"@@ -173,7 +173,7 @@ public class DefaultConditionRunner implements ConditionRunner {
+     }
+ 
+     protected void log(String message) {
+-      logger.info(new Date() + "" - "" + message);
++      logger.finest(new Date() + "" - "" + message);
+     }
+ 
+   }",This method is designed to allow the condition runner to tell users something interesting. The current `INFO` log level is correct.,rb,1,1,1
+"@@ -116,7 +116,14 @@ The `puppetfile` section of the configuration file configures how to retrieve mo
+ 
+ ## Transport configuration options
+ 
+-Transport configuration options can be set in both the configuration file and inventory file.
++Transport configuration options can be set in the inventory file. Options at
++the inventory's top level will apply to all targets.
++
++### The transport option
++
++<% @transport_option[:options].each do |option, desc| -%>
++| `<%= option %>` | <%= desc %> | <%= @transport_option[:defaults][option].to_s %> |
++<% end %>
+ 
+ <% @transports[:options].each do |transport, options| %>
+ ### <%= transport %>","Definitely work for another ticket, but I think we need to look at creating separate ref pages for each config/inventory file. This is quickly getting confusing.  ",rb,1,1,1
+"@@ -34,7 +34,7 @@ module Selenium
+           driver.manage.timeouts.implicit_wait = 6
+ 
+           driver.find_element(id: 'adder').click
+-          driver.find_element(id: 'box0')
++          expect { driver.find_element(id: 'box0') }.not_to raise_error(WebDriver::Error::NoSuchElementError)
+         end
+ 
+         it 'should still fail to find an element with implicit waits enabled' do",This should just be `.not_to raise_error` otherwise it potentially hides errors,rb,1,1,1
+"@@ -35,9 +35,9 @@ module Blacklight
+         fields = Array.wrap(view_config.html_title_field)
+         f = fields.detect { |field| document.has? field }
+         f ||= 'id'
+-        field_values(field_config(f))
++        field_values(field_config(f), no_html: true)
+       else
+-        heading
++        heading(no_html: true)
+       end
+     end
+ ",This bothers me a little bit because it isn't actually used in blacklight.. It almost makes me wonder if we're appropriately using `field_values` here at all. I'd like to put a little more thought into it before we ship this.,rb,1,1,1
+"@@ -186,13 +186,11 @@ module Paginable
+     @args.except(*PAGINATION_QUERY_PARAMS).to_param
+   end
+ 
+-  # TODO: We would be better served here passing these arguments as a Ruby double splat
+-  # rubocop:disable Lint/UnusedMethodArgument
+   def stringify_query_params(page: 1, search: @args[:search],
+                              sort_field: @args[:sort_field],
+                              sort_direction: nil)
+ 
+-    query_string = {}
++    query_string = { page: page }
+     query_string[""search""] = search if search.present?
+     if sort_field.present?
+       query_string[""sort_field""] = sort_field",this was a separate issue that I stumbled across while testing,rb,0,0,1
+"@@ -25,6 +25,9 @@ public interface Span extends AutoCloseable, TraceContext {
+   Span setAttribute(String key, Number value);
+   Span setAttribute(String key, String value);
+ 
++  Span addEvent(String name);
++  Span addEvent(String name, long timestamp);
++
+   Span setStatus(Status status);
+ 
+   @Override",We don't need this additional method.,rb,1,1,0
+"@@ -14,11 +14,9 @@ class HomeController < ApplicationController
+   def index
+     if user_signed_in?
+       name = current_user.name(false)
+-      # TODO: Investigate if this is even relevant anymore.
+-      # The name var will never be blank here because the logic in
+-      # User says to return the email if the firstname and surname are empty
+-      # regardless of the flag passed in
+-      if name.blank?
++      # The RolesController defaults the firstname and surname (both required fields)
++      # to 'FirstName' and 'Surname' when a plan is shared with an unknown user
++      if name == ""First Name Surname""
+         redirect_to edit_user_registration_path
+       else
+         redirect_to plans_url",Came across this recently in DMPTool and decided to just fix here,rb,0,0,1
+"@@ -67,11 +67,11 @@ public abstract class AbstractWebDriverEventListener implements WebDriverEventLi
+     // Do nothing.
+   }
+ 
+-  public void beforeChangeValueOf(WebElement element, WebDriver driver) {
++  public void beforeChangeValueOf(WebElement element, WebDriver driver, CharSequence[] value) {
+     // Do nothing.
+   }
+ 
+-  public void afterChangeValueOf(WebElement element, WebDriver driver) {
++  public void afterChangeValueOf(WebElement element, WebDriver driver, CharSequence[] value) {
+     // Do nothing.
+   }
+ ","change 'value' to keysToSend, here and in other references in this commit. 'value' implies the user is getting the value of the element, rather than just the keys we're sending to it.",rb,1,1,1
+"@@ -0,0 +1,16 @@
++module VanityHelpers
++  def vanity_signup_count
++    tracked_events_for(Vanity.playground.metric(:signups))
++  end
++
++  def tracked_events_for(metric)
++    events_from_today =
++      Vanity::Metric.data(metric, Date.today, Date.today).first
++    count_of_todays_events = events_from_today.second
++  end
++
++  def stub_ab_test_result(experiment, choice)
++    Vanity.playground.experiment(experiment).identify {}
++    Vanity.playground.experiment(experiment).chooses(choice)
++  end
++end",Useless assignment to variable - `count_of_todays_events`.,rb,1,1,1
+"@@ -7,4 +7,8 @@ RSpec.configure do |config|
+   config.before(:suite) do
+     # FactoryBot.lint
+   end
++
++  config.append_after(:each) do
++    FactoryBot.rewind_sequences
++  end
+ end","This ensures that all of our `sequence` calls in factories get reset to 1 between tests. I noticed that section numbers were generated sequentially, but would not match the customized version as the original template would be in the 60's and the customized template would always start at 1 as it's generated by our logic.",rb,1,1,1
+"@@ -0,0 +1,9 @@
++class KissmetricsClientFactory
++  def self.client
++    if Rails.env.test?
++      FakeKissmetrics::HttpClient.new('fake-api-key')
++    else
++      Kissmetrics::HttpClient.new(KISSMETRICS_API_KEY)
++    end
++  end
++end",Do we really need the Factory in this class name?,rb,1,1,1
+"@@ -20,6 +20,11 @@ class User < ActiveRecord::Base
+   has_many :outgoing_delegations, class_name: 'ApprovalDelegate', foreign_key: 'assigner_id'
+   has_many :outgoing_delegates, through: :outgoing_delegations, source: :assignee
+ 
++  has_many :incoming_delegations, class_name: 'ApprovalDelegate', foreign_key: 'assignee_id'
++  has_many :incoming_delegates, through: :incoming_delegations, source: :assigner
++
++  has_many :completed_steps, class_name: ""Step"", foreign_key: ""completer""
++
+   def self.active
+     where(active: true)
+   end",surprised code climate isn't yelling about single quotes. Seems like that integration is a bit flaky these days...,rb,1,0,0
+"@@ -11,6 +11,7 @@
+ #
+ # Indexes
+ #
++#  fk_rails_fe95df7db0                (identifier_scheme_id)
+ #  index_user_identifiers_on_user_id  (user_id)
+ #
+ # Foreign Keys",Is the UserIdentifier model sticking around for a release to migrate the objects over to the new Identifier model?,rb,1,1,1
+"@@ -1,6 +1,18 @@
+ require ""rails_helper""
+ 
++include ActionView::Helpers::DateHelper
++
+ feature ""Subscriber views decks"" do
++  scenario ""and hasn't started a deck"" do
++    flashcard = create(:flashcard)
++
++    visit decks_path(as: create(:subscriber))
++
++    within("".decks-area"") do
++      expect(page).to have_content(never_attempted)
++    end
++  end
++
+   scenario ""and starts a deck"" do
+     flashcard = create(:flashcard)
+ ",Useless assignment to variable - `flashcard`.,rb,1,1,1
+"@@ -1,4 +1,6 @@
+ $_rspec_core_load_started_at = Time.now
++require 'thread'
++
+ require 'rbconfig'
+ 
+ require ""rspec/support""","If possible, this needs delaying until someone actively uses the feature, reason being is we try **very** hard not to pollute a users code base with std library stuff, which this would.",rb,1,1,1
+"@@ -0,0 +1,11 @@
++class AddReadEmailPermission < ActiveRecord::Migration
++  def up
++    add_column :oauth_tokens, :allow_read_email, :boolean, :null => false, :default => false
++    add_column :client_applications, :allow_read_email, :boolean, :null => false, :default => false
++  end
++
++  def down
++    remove_column :client_applications, :allow_read_email
++    remove_column :oauth_tokens, :allow_read_email
++  end
++end",If you make that `def change` then you won't need the `down` routine at all.,rb,1,1,1
+"@@ -56,6 +56,8 @@ module Travis
+           const = self.class.const_get(name.to_s.camelize)
+           const.new(script, sh, data, config) if const && run_addon?(const)
+         rescue NameError
++        rescue
++          raise Travis::Build::AddonConfigError.new(name)
+         end
+ 
+         def addon_config",Does this need to be a bare `rescue`? Would `rescue StandardError => e` with `e` _at least_ being logged be acceptable?,rb,1,1,1
+"@@ -16,7 +16,7 @@ describe ClientSummarizer do
+ 
+   describe ""Ncr::WorkOrder"" do
+     it ""builds summary"" do
+-      wo = create(:ncr_work_order, amount: 123)
++      create(:ncr_work_order, amount: 123)
+       summarizer = ClientSummarizer.new(client_namespace: ""Ncr"")
+       summary = summarizer.run
+       expect(summary.total).to eq(123)",why throw away the variable assignment? and why in this PR?,rb,0,1,1
+"@@ -2,6 +2,9 @@ class DashboardsController < ApplicationController
+   before_action :authorize
+ 
+   def show
+-    @catalog = Catalog.new
++    @topics = TopicsWithResources.new(
++      topics: Topic.dashboard,
++      factory: TopicWithResourcesFactory.new(catalog: Catalog.new)
++    )
+   end
+ end",There's some duplication in dependency management here which I'd like to resolve in a subsequent pull request by introducing Payload.,rb,1,1,1
+"@@ -77,6 +77,6 @@ feature 'An OAuth client authenticates', js: true do
+ 
+   def verify_signed_in_user_details(json, checked_user)
+     user = json['user']
+-    user['email'].should eq checked_user.email
++    expect(user['email']).to eq checked_user.email
+   end
+ end",Prefer double-quoted strings unless you need single quotes to avoid extra backslashes for escaping.,rb,1,1,1
+"@@ -1,2 +1,16 @@
+ class PagesController < HighVoltage::PagesController
++  include HighVoltage::StaticPage
++
++  layout :layout_for_page
++
++  private
++
++  def layout_for_page
++    case params[:id]
++    when ""tapas-for-teams""
++      ""splash""
++    when ""tapas-for-one""
++      ""splash""
++    end
++  end
+ end",Prefer double-quoted strings unless you need single quotes to avoid extra backslashes for escaping.,rb,1,1,1
+"@@ -48,4 +48,8 @@ module ProposalDelegate
+   def client
+     self.class.client
+   end
++
++  def slug_matches?(user)
++    user.client_slug == client
++  end
+ end",should we write a little unit test for this so that if it changes we have a test failure?,rb,1,1,1
+"@@ -374,6 +374,14 @@ module Asciidoctor
+       result = []
+       pgwide_attribute = (node.option? 'pgwide') ? ' pgwide=""1""' : nil
+       result << %(<#{tag_name = node.title? ? 'table' : 'informaltable'}#{common_attributes node.id, node.role, node.reftext}#{pgwide_attribute} frame=""#{node.attr 'frame', 'all'}"" rowsep=""#{['none', 'cols'].include?(node.attr 'grid') ? 0 : 1}"" colsep=""#{['none', 'rows'].include?(node.attr 'grid') ? 0 : 1}"">)
++
++      if (node.option? 'breakable')
++        result << %(<?dbfo keep-together=""auto""?>)
++      end 
++      else if (node.option? 'unbreakable')
++        result << %(<?dbfo keep-together=""always""?>)
++      end 
++
+       result << %(<title>#{node.title}</title>) if tag_name == 'table'
+       if (width = (node.attr? 'width') ? (node.attr 'width') : nil)
+         TABLE_PI_NAMES.each do |pi_name|",Could you remove this `end` and use `elseif` on the next line instead of `else if`? You can see similar examples elsewhere in this file.,rb,1,1,1
+"@@ -83,7 +83,7 @@ describe Query::Proposal::Search, elasticsearch: true do
+       user = create(:user, client_slug: ""test"")
+ 
+       proposal1 = create(:proposal, id: 199, requester: user)
+-      test_client_request1 = create(:test_client_request, proposal: proposal1)
++      create(:test_client_request, proposal: proposal1)
+       proposal1.reindex
+ 
+       test_client_request2 = create(:test_client_request, project_title: ""199 rolly chairs for 1600 Penn Ave"")",why throw away the return value?,rb,1,1,1
+"@@ -258,6 +258,10 @@ module Travis
+           # information.
+           dump_log(""out"")
+ 
++          # If a fold (like dump log) is the last command it is not folded, so
++          # add a dummy command
++          sh.cmd 'TRUE', echo: false
++
+           # Check revdeps, if requested.
+           if @devtools_installed and config[:r_check_revdep]
+             sh.echo ""Checking reverse dependencies""","I don't think this works. If you want a command that does nothing, you can try `true`, `;`, or `:`.",rb,1,1,1
+"@@ -25,8 +25,14 @@ module Bolt
+     # hierarchy, falling back to the default if we reach the root.
+     def self.find_boltdir(dir)
+       dir = Pathname.new(dir)
+-      if (dir + BOLTDIR_NAME).directory?
+-        new(dir + BOLTDIR_NAME, 'embedded')
++      # allows for any case of Boltdir, BoltDir, boltdir, etc
++      # note: we're sorting the directories here so that we consistently pick the
++      #       same Boltdir between runs, and we always choose the lexicographical ""less""
++      #       Boltdir name rather than whatever the first name we run into as returned by
++      #       the filesystem
++      boltdirs = dir.children.sort.select { |c| c.directory? && c.basename.to_s.casecmp?(BOLTDIR_NAME) }
++      if !boltdirs.empty?
++        new(boltdirs.first, 'embedded')
+       elsif (dir + 'bolt.yaml').file? || (dir + 'bolt-project.yaml').file?
+         new(dir, 'local')
+       elsif dir.root?",We should issue a warning and say which one we're using if more than one is found.,rb,1,1,1
+"@@ -98,7 +98,7 @@ class ProposalPolicy
+ 
+   def pending_approval!
+     check(self.pending_approver? || self.pending_delegate?,
+-          ""A response has already been logged a response for this proposal"")
++          ""A response has already been logged for this proposal"")
+   end
+ 
+   def visible_proposals","would it be possible to do something like`""This proposal has already been approved by #{approver.email_address}""` ? are there situations other than an already approved proposal where someone would see this error msg?",rb,1,1,1
+"@@ -91,6 +91,14 @@ module Bolt
+       Logging.logger[:root].appenders.any?
+     end
+ 
++    def self.stream
++      @stream
++    end
++
++    def self.stream=(stream)
++      @stream = stream
++    end
++
+     # A helper to ensure the Logging library is always initialized with our
+     # custom log levels before retrieving a Logger instance.
+     def self.logger(name)","If `@stream` is set from `configure`, then we could probably just update this to be a single `stream?` method that can be called from the shell classes?",rb,1,1,1
+"@@ -7,12 +7,14 @@ class Cart < ActiveRecord::Base
+   has_many :approvals
+   has_many :approval_users, through: :approvals, source: :user
+   has_one :approval_group
++  has_many :user_roles, through: :approval_group
+   has_one :api_token
+   has_many :comments, as: :commentable
+   has_many :properties, as: :hasproperties
+ 
+   #TODO: after_save default status
+   #TODO: validates_uniqueness_of :name
++  validates :flow, presence: true, inclusion: {in: ApprovalGroup::FLOWS}
+ 
+ 
+   def update_approval_status","Consider adding a validation for flow on ApprovalGroup too. Looking ahead to building out the UI for adding an approval group, we would likely need to give the admins the ability to indicate it there.",rb,1,1,1
+"@@ -8,7 +8,12 @@ module Blacklight
+       # @param [Array<String>] options explicit spellcheck options to render
+       def initialize(response:, options: nil)
+         @response = response
+-        @options = options || @response&.spelling&.words
++        @options = options
++        if @response&.spelling&.collation
++          @options = [@response.spelling.collation]
++        elsif @response&.spelling&.words
++          @options = response.spelling.words
++        end
+       end
+ 
+       def link_to_query(query)","There's a change in behavior here that I don't think is intentional: Prior to the PR, a passed options param will always provide the value of `@options`; here, either form of spelling suggestion will override it. Was this intentional?",rb,0,1,1
+"@@ -23,7 +23,7 @@
+       .imagery(iD.data.imagery)
+       .taginfo(iD.services.taginfo())
+       .embed(true)
+-      .assetPath(""/iD/"") <%# Cant use asset_path('iD/') in production. %>
++      .assetPath(""iD/"")
+       .assetMap(<%= assets(""iD"").to_json.html_safe %>)
+       .locale(""<%= locale %>"", ""<%= asset_path(""iD/locales/#{locale}.json"") %>"")
+       .preauth({",Do we know why this didn't work in production before and does now?,rb,1,0,1
+"@@ -34,5 +34,6 @@
+     <%= if_administrator(:li) do %>
+       <%= link_to t('diary_entry.diary_entry.hide_link'), hide_diary_entry_path(:display_name => diary_entry.user.display_name, :id => diary_entry.id), :method => :post, :data => { :confirm => t('diary_entry.diary_entry.confirm') } %>
+     <% end %>
++
+   </ul>
+ </div>",The whole change for this file is this empty line. Is it right?,rb,1,1,1
+"@@ -14,7 +14,7 @@ HTTP_ERRORS = [Timeout::Error,
+                Net::HTTPHeaderSyntaxError,
+                Net::ProtocolError]
+ 
+-SMTP_SERVER_ERRORS = [TimeoutError,
++SMTP_SERVER_ERRORS = [Timeout::Error,
+                       IOError,
+                       Net::SMTPUnknownError,
+                       Net::SMTPServerBusy,",Freeze mutable objects assigned to constants.,rb,1,0,1
+"@@ -0,0 +1,13 @@
++<!-- We participate in the US government's analytics program. See the data at analytics.usa.gov. -->
++<script id=""_fed_an_ua_tag"" src=""https://dap.digitalgov.gov/Universal-Federated-Analytics-Min.js""></script>
++<!-- 18F analytics -->
++<script>
++  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
++  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
++  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
++  })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
++
++  ga('create', 'UA-48605964-27', 'auto');
++  ga('set', 'anonymizeIp', true);
++  ga('send', 'pageview');
++</script>","Probably a good idea to set this as an environmental variable/setting, if only to allow us swap it out in different environments.",rb,1,1,1
+"@@ -0,0 +1,7 @@
++class CompareRepositoriesController < ApplicationController
++  before_action :tool_context, only: :index
++
++  def chart
++    render json: RepositoryComparisionChart.build.to_json, layout: false
++  end
++end","Hey Alex, if RepositoryComparisonChart is a module why is it that line 5 does not fail if it wasn't included in this file?",rb,0,1,1
+"@@ -4,6 +4,8 @@ class OrgsController < ApplicationController
+ 
+   include OrgSelectable
+ 
++  skip_before_action :verify_authenticity_token, only: %w[search]
++
+   after_action :verify_authorized, except: %w[
+     shibboleth_ds shibboleth_ds_passthru search
+   ]",switch to pass auth token,rb,1,0,1
+"@@ -450,6 +450,14 @@ class Plan < ActiveRecord::Base
+     end
+   end
+ 
++  ## Update plan identifier.
++  #
++  # Returns Boolean
++  def add_identifier!(identifier)
++    self.update(identifier: identifier)
++    save!
++  end
++
+   ##
+   # Whether or not the plan is associated with users other than the creator
+   #",I like this being a function on the plan model so we can update it's behavior if we decide to go with some kind of identifier other than the plan's ID,rb,1,1,1
+"@@ -1,7 +1,7 @@
+ Puppet::DataTypes.create_type('Target') do
+   interface <<-PUPPET
+     attributes => {
+-      host => String[1],
++      uri => String[1],
+       options => { type => Hash[String[1], Data], value => {} }
+     }
+     PUPPET",I don't think we have any tests that use this.,rb,0,1,1
+"@@ -14,12 +14,12 @@ module CommunicartMailerHelper
+     end
+   end
+ 
+-  def approve_all_url(approval)
++  def approve_all_url(approval, action = 'approve')
+     approval_response_url(
+       cart_id: approval.cart_id,
+       user_id: approval.user_id,
+       cch: approval.api_token.access_token,
+-      approver_action: 'approve'
++      approver_action: action
+     )
+   end
+ end","Last thing! Can we update the method name, since it's not always for approvals?",rb,1,1,1
+"@@ -0,0 +1,17 @@
++require ""rails_helper""
++
++feature ""Subscriber switches to discounted subscription"" do
++  scenario ""by accepting alternate offer"" do
++    discounted_annual_plan = create(:discounted_annual_plan)
++
++    sign_in_as_user_with_subscription
++    visit my_account_path
++    click_link I18n.t(""subscriptions.cancel"")
++    click_button I18n.t(""subscriptions.accept_discounted_annual_subscription"")
++
++    expect(page).to(
++      have_content(I18n.t(""subscriptions.flashes.discount.success""))
++    )
++    expect(@current_user.reload.plan).to eq discounted_annual_plan
++  end
++end",Line is too long. [82/80],rb,1,1,1
+"@@ -57,8 +57,7 @@ class TestFakerInternetOmniauth < Test::Unit::TestCase
+     auth                  = @tester.google(name: custom_name)
+     info                  = auth[:info]
+     extra_raw_info        = auth[:extra][:raw_info]
+-    id_info               = auth[:id_info]
+-
++    
+     assert_instance_of String, info[:name]
+     assert_equal 2, word_count(info[:name])
+     assert_equal custom_name, info[:name]",These variables are not being used. Why are we still declaring them? Copy and   again?,rb,1,1,1
+"@@ -13,6 +13,7 @@ module Beaker
+ 
+       aws
+     }
++    let( :options ) { make_opts.merge({ 'logger' => double().as_null_object }) }
+     let(:amispec) {{
+       ""centos-5-x86-64-west"" => {
+         :image => {:pe => ""ami-sekrit1""},","Your spacing style differs from the rest of the file, see the ( :options ) you have here. I can see it in other places in the patch.",rb,0,1,1
+"@@ -4,7 +4,7 @@ MYUSA_URL = ENV['MYUSA_URL'] || 'https://alpha.my.usa.gov'
+ 
+ Rails.application.config.middleware.use OmniAuth::Builder do
+   provider :myusa, MYUSA_KEY, MYUSA_SECRET, {
+-    scope: 'profile.email',
++    scope: 'profile.email profile.first_name profile.last_name',
+     client_options: {
+       site: MYUSA_URL,
+       token_url: ""/oauth/authorize""",That Was Easy:tm:,rb,0,0,1
+"@@ -1,6 +1,8 @@
+ module EnvironmentSpecHelper
+   # @todo rewrite using with_env_vars
+   def with_18f_procurement_env_variables
++    ENV['DISABLE_SANDBOX_WARNING'] = 'true'
++
+     old_approver_email = ENV['GSA18F_APPROVER_EMAIL']
+     old_purchaser_email = ENV['GSA18F_PURCHASER_EMAIL']
+ ","I know you were just following what the rest of the rest of the method is doing, but mind converting all of them to use `with_env_vars`?",rb,1,1,1
+"@@ -0,0 +1,13 @@
++ActiveAdmin.register ScheduledReport do
++  permit_params :name, :report_id, :frequency, :user_id
++
++  form do |f|
++    f.inputs ""Scheduled Report"" do
++      f.input :name
++      f.input :report
++      f.input :user
++      f.input :frequency, as: :select, collection: [""daily"", ""weekly"", ""monthly""]
++    end
++    f.actions
++  end
++end",should we clarify in the UI when each of these types of reports is sent out?,rb,1,1,1
+"@@ -378,6 +378,18 @@ describe RSpec::Core::ConfigurationOptions, :isolated_directory => true, :isolat
+       expect(parse_options[:formatters]).to eq([['local']])
+     end
+ 
++    it ""parses options file correctly if erb code has trimming options"" do
++      File.open(""./.rspec"", ""w"") do |f|
++        f << ""<% if 1 == 1 -%>\n""
++        f << ""--format local\n""
++        f << ""<%- end %>\n""
++      end
++
++      expect do
++        expect(parse_options[:formatters]).to eq([['local']])
++      end.to_not raise_error(SyntaxError)
++    end
++
+     context ""with custom options file"" do
+       it ""ignores project and global options files"" do
+         File.open(""./.rspec"", ""w"") {|f| f << ""--format project""}","`if 1 == 1` seems like a convulated way to have an `if true` conditional...any reason not to just use `if true`? That more clearly states the intention, I think.",rb,1,1,1
+"@@ -40,6 +40,9 @@ module Travis
+             sh.cmd 'CURL_USER_AGENT=""Travis-CI $(curl --version | head -n 1)""'
+             case config[:os]
+             when 'linux'
++              if config[:julia] == 'nightly' && config[:arch] == 'arm64'
++                sh.failure 'Nightly Julia binaries are not available for AArch64'
++              end
+               sh.cmd 'mkdir -p ~/julia'
+               sh.cmd %Q{curl -A ""$CURL_USER_AGENT"" -s -L --retry 7 '#{julia_url}' } \
+                        '| tar -C ~/julia -x -z --strip-components=1 -f -'",Is this a typo?,rb,1,0,1
+"@@ -201,7 +201,9 @@ module RSpec
+         attr_reader :example
+ 
+         Example.public_instance_methods(false).each do |name|
+-          define_method(name) { |*a, &b| @example.__send__(name, *a, &b) }
++          unless name.to_sym == :run
++            define_method(name) { |*a, &b| @example.__send__(name, *a, &b) }
++          end
+         end
+ 
+         Proc.public_instance_methods(false).each do |name|","I tend to prefer using a `next` guard clause, but that's just subjective preference :). Not a merge blocker.",rb,0,0,1
+"@@ -5,10 +5,14 @@ class AuthController < ApplicationController
+   def oauth_callback
+     auth = request.env[""omniauth.auth""]
+     return_to_path = fetch_return_to_path
+-    do_user_auth(auth)
+-    session[:token] = auth.credentials.token
+-    flash[:success] = ""You successfully signed in""
+-    redirect_to return_to_path || proposals_path
++    begin
++      do_user_auth(auth)
++      session[:token] = auth.credentials.token
++      flash[:success] = ""You successfully signed in""
++      redirect_to return_to_path || proposals_path
++    rescue => _error
++      render :failure
++    end
+   end
+ 
+   def failure",is it possible to rescue a particular error rather than any error? Ideally we do not rescue all errors so we can surface errors we care about and rescue those we want to ignore.,rb,1,1,1
+"@@ -12,6 +12,9 @@
+     <h2 class=""parent-collection"">
+       <%= link_to @video.watchable_name, @video.watchable %>
+     </h2>
++    <h3 class=""page-header__time-to-complete"">
++      <%= ""#{@video.length_in_minutes} minutes"" %>
++    </h3>
+   </header>
+ <% end %>
+ ","Do we want to wrap this block with `video.show_timing?`. Tbh I'm okay with the video length on all videos, so maybe we don't need `video.show_timing?` at all? I do still want to limit showing the trail timing to the RoR5 trail, since our exercise time estimate isn't precise and it seems like a less expected feature",rb,1,1,1
+"@@ -47,7 +47,7 @@ public class DeleteNamedQueryExample {
+             System.exit(1);
+         }
+ 
+-        String name = args[0];
++        String name =""sampleQuery"" ;  //args[0];
+         AthenaClient athenaClient = AthenaClient.builder()
+                 .region(Region.US_WEST_2)
+                 .build();",Did you intend to ignore the command line arg?,rb,1,1,1
+"@@ -1848,7 +1848,7 @@ function fullyResolveKeys(obj) {
+  * If there are no listeners registered with the flow, the error will be
+  * rethrown to the global error handler.
+  *
+- * Refer to the {@link ./promise} module documentation fora  detailed
++ * Refer to the {@link ./promise} module documentation for a  detailed
+  * explanation of how the ControlFlow coordinates task execution.
+  *
+  * @final",there is still `2` spaces after `a` here.. :P,rb,1,1,1
+"@@ -0,0 +1,18 @@
++# frozen_string_literal: true
++
++require 'bolt/error'
++require 'bolt/config/transport'
++
++module Bolt
++  class Config
++    class Sudoable < Transport
++      private def validate
++        run_as_cmd = config['run-as-command']
++        if run_as_cmd && (!run_as_cmd.is_a?(Array) || run_as_cmd.any? { |n| !n.is_a?(String) })
++          raise Bolt::ValidationError,
++                ""run-as-command must be an Array of Strings, received #{run_as_cmd.class} #{run_as_cmd.inspect}""
++        end
++      end
++    end
++  end
++end","I don't think this class provides enough value to be worth the extra complexity, especially since it's only performing half its job (it should also be _defining_ the options associated with `sudo` not just validating them).",rb,1,1,1
+"@@ -77,14 +77,16 @@ module Beaker
+       # @return [Result]   An object representing the outcome of *command*.
+       # @raise  [FailTest] Raises an exception if *command* obviously fails.
+       def on(host, command, opts = {}, &block)
+-        unless command.is_a? Command
++        block_on host do | host |
++          if command.is_a? Command
++            command = command.cmd_line(host)
++          end
+           cmd_opts = {}
++          #add any additional environment variables to the command
+           if opts[:environment]
+             cmd_opts['ENV'] = opts[:environment]
+           end
+           command = Command.new(command.to_s, [], cmd_opts)
+-        end
+-        block_on host do | host |
+           @result = host.exec(command, opts)
+ 
+           # Also, let additional checking be performed by the caller.","I understand that `Beaker::Command` is in scope here as `Command` and that it is relatively common to use the unqualified in-scope name of a class/module both in the Ruby community and in Beaker, but I am curious if you are aware of any reasons not to use the fully-qualified version? I personally prefer less ambiguity where possible, but I'm not suggesting a change should be made--just interested in discussion about coding conventions within Beaker.",rb,1,1,0
+"@@ -9,9 +9,7 @@ module Beaker
+     |   V   |
+     |   |   | ""
+ 
+-    attr_reader :options, :logger
+-
+-
++    attr_reader :logger, :options, :network_manager
+     def initialize
+       @timestamp = Time.now
+       # Initialize a logger object prior to parsing; this should be overwritten whence",I'm also pretty sure that we no longer need to have this as a readable class var.,rb,0,1,1
+"@@ -13,7 +13,7 @@ module Beaker
+     SLEEPWAIT = 5
+     TRIES = 5
+     UNIX_PACKAGES = ['curl', 'ntpdate']
+-    FREEBSD_PACKAGES = ['curl']
++    FREEBSD_PACKAGES = ['curl', 'perl5']
+     WINDOWS_PACKAGES = ['curl']
+     PSWINDOWS_PACKAGES = []
+     SLES10_PACKAGES = ['curl']","Not sure how neccesary this is, as perl is included by default on all bsd builds apparently, but cant hurt (only takes a few secs to check it)",rb,1,1,1

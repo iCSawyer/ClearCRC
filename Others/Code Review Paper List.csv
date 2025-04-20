@@ -1,0 +1,57 @@
+Name,Venue
+"Expectations, outcomes, and challenges of modern code review",ICSE 2013
+Code review quality: How developers see it,ICSE 2016
+Modern code review: a case study at google,ICSE-SEIP 2018
+An empirical study of design discussions in code review,EMSE 2018
+Characteristics of useful code reviews: An empirical study at microsoft,MSR 2015
+Predicting Usefulness of Code Review Comments using Textual Features and Developer Experience,MSR 2017
+An empirical study of sentiments in code reviews,IST 2019
+Automating code review activities by large-scale pre-training,FSE 2022
+Investigating code review quality: Do people and participation matter?,ICSME 2015
+Using Pre-Trained Models to Boost Code Review Automation,ICSE 2022
+Reducing human effort and improving quality in peer code reviews using automatic static analysis and reviewer recommendation,ICSE 2013
+Why does code review work for open source software communities?,ICSE 2019
+Anti-patterns in Modern Code Review: Symptoms and Prevalence,SANER 2021
+Code reviewing in the trenches: Challenges and best practices,IEEE Software 2017
+An exploratory study on confusion in code reviews,EMSE 2021
+What makes a code change easier to review: an empirical investigation on code change reviewability,FSE 2018
+"Confusion in Code Reviews: Reasons, Impacts, and Coping Strategies",SANER 2019
+"The ""Shut the f**k up"" Phenomenon: Characterizing Incivility in Open Source Code Review Discussions",HIC 2021
+Information needs in contemporary code review,HCI 2018
+An empirical study of the impact of modern code review practices on software quality,EMSE 2016
+Modern code reviews in open-source projects: Which problems do they fix?,MSR 2014
+Understanding Developer Commenting in Code Reviews,IEICE 2019
+Automatically recommending peer reviewers in modern code review,TSE 2015
+Automated Code Review Comment Classification to Improve Modern Code Reviews,AG 2022
+Revisiting code ownership and its relationship with software quality in the scope of modern code review,ICSE 2016
+What really matters in Code Review? A study about challenges and opportunities related to code review in industry,SBQS 2021
+Impact of developer reputation on code review outcomes in oss projects: An empirical investigation,ESEM 2014
+Understanding automated code review process and developer experience in industry,FSE 2022
+A study of the quality-impacting practices of modern code review at sony mobile,ICSE 2016
+A systematic literature review and taxonomy of modern code review,JSS 2021
+Developers perception of peer code review in research software development,EMSE 2022
+Investigating code review practices in defective files: An empirical study of the qt system,MSR 2015
+How Does Code Reviewing Feedback Evolve? A Longitudinal Study at Dell EMC,ICSE-SEIP 2018
+Understanding why we cannot model how long a code review will take: an industrial case study,FSE 2022
+"Review participation in modern code review: An empirical study of the android, Qt, and OpenStack projects",EMSE 2016
+Convergent Contemporary Software Peer Review Practices,FSE 2013
+A large-scale study of modern code review and security in open source projects,PROMISE 2017
+When testing meets code review: Why and how developers review tests,
+Towards automating code review activities,
+Automated code review tools for security,
+"Do code review practices impact design quality? a case study of the qt, vtk, and itk projects",
+"The impact of code review coverage and code review participation on software quality: A case study of the qt, vtk, and itk projects",
+Factors influencing code review processes in industry,
+On the need for a new generation of code review tools,
+A review of peer code review in higher education,TOCE 2020
+Assessment of programming language learning based on peer code review model: Implementation and experience report,
+EvaCRC: Evaluating Code Review Comments,FSE 2023
+,
+,
+,
+,
+,
+,
+,
+,
+,

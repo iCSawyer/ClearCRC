@@ -1,0 +1,2949 @@
+patch,msg,lang,relevance,informativeness,expression
+"@@ -3481,5 +3481,17 @@ move_mm_reg_opcode(bool aligned16, bool aligned32)
+ #    endif /* X86/ARM */
+ }
+ 
++uint
++move_mm_avx512_reg_opcode(bool aligned64)
++{
++#    ifdef X86
++    CLIENT_ASSERT(ZMM_ENABLED(), ""move_mm_avx512_reg_opcode on unsupported processor"");
++    return (aligned64 ? OP_vmovdqa64 : OP_vmovdqu64);
++#    else
++    CLIENT_ASSERT(false, ""move_mm_avx512_reg_opcode not supported on ARM/AArch64"");
++    return 0;
++#    endif /* X86 */
++}
++
+ #endif /* !STANDALONE_DECODER */
+ /****************************************************************************/",Isn't this an internal function? CLIENT_ASSERT is for API functions for reporting interface errors.,c,1,1,1
+"@@ -92,7 +92,11 @@ int flb_parser_json_do(struct flb_parser *parser,
+             off = 0;
+             msgpack_unpacked_destroy(&result);
+             msgpack_unpacked_init(&result);
+-            msgpack_unpack_next(&result, tmp_out_buf, tmp_out_size, &off);
++            if (msgpack_unpack_next(&result, tmp_out_buf, tmp_out_size, &off) < 0)
++{
++            msgpack_unpacked_destroy(&result);
++return -1;
++}
+             map = result.data;
+         }
+     }",something went wrong with indentation there,c,0,0,1
+"@@ -53,7 +53,7 @@ class OrderedCheckersAction(argparse.Action):
+         namespace.ordered_checkers = ordered_checkers
+ 
+ 
+-# ------------------------------------------------------------------------------
++# -----------------------------------------------------------------------------
+ class DeprecatedOptionAction(argparse.Action):
+     """"""
+     Deprecated argument action.",Maybe we could remove these as well if we are already touching these.,c,1,1,1
+"@@ -34,6 +34,7 @@
+  */
+ 
+ #include ""globals.h""
++#include ""arch.h""
+ 
+ void
+ unit_test_io(void);","Put the unit tests in an arch/ location, not in this top-level driver file. IIRC I suggested arch.c in my original request for a unit test, but arch/x86 may be better.",c,1,1,1
+"@@ -355,9 +355,14 @@ static bool gles2_init_wl_display(struct wlr_renderer *wlr_renderer,
+ 		struct wl_display *wl_display) {
+ 	struct wlr_gles2_renderer *renderer =
+ 		gles2_get_renderer(wlr_renderer);
+-	if (!wlr_egl_bind_display(renderer->egl, wl_display)) {
+-		wlr_log(WLR_INFO, ""failed to bind wl_display to EGL"");
+-		return false;
++
++	if (renderer->egl->exts.bind_wayland_display_wl) {
++		if (!wlr_egl_bind_display(renderer->egl, wl_display)) {
++			wlr_log(WLR_ERROR, ""Failed to bind wl_display to EGL"");
++			return false;
++		}
++	} else {
++		wlr_log(WLR_INFO, ""EGL_WL_bind_wayland_display is not supported"");
+ 	}
+ 	return true;
+ }",Checking for BIND_WAYLAND_DISPLAY_WL is a separate change or should at least be mentioned in the commit message.,c,1,1,1
+"@@ -1085,6 +1085,9 @@ module_lookup_symbol(ELF_SYM_TYPE *sym, os_privmod_data_t *pd)
+      */
+     ASSERT_OWN_RECURSIVE_LOCK(true, &privload_lock);
+     mod = privload_first_module();
++    /* Symbols are currently looked up following the dependency chain depth-first instead
++     * of breadth-first as reflected in the global list 'modlist' (xref i#3850).
++     */
+     while (mod != NULL) {
+         pd = mod->os_privmod_data;
+         ASSERT(pd != NULL && name != NULL);",This should be an XXX (or FIXME). Please mention that the ELF spec requires breadth-first symbol lookup.,c,1,1,1
+"@@ -843,13 +843,6 @@ err:
+     return NULL;
+ }
+ 
+-/*  Create namespace name for jobid 'id'
+- */
+-static int job_get_ns_name (char *buf, int bufsz, flux_jobid_t id)
+-{
+-    return fluid_encode (buf, bufsz, id, FLUID_STRING_DOTHEX);
+-}
+-
+ static double job_get_kill_timeout (flux_t *h)
+ {
+     double t = DEFAULT_KILL_TIMEOUT;","typo in commit message ""notiation"" -> ""notation""",c,0,0,1
+"@@ -914,8 +914,7 @@ insert_reachable_cti(dcontext_t *dcontext, instrlist_t *ilist, instr_t *where,
+ {
+     ASSERT(scratch != REG_NULL); /* required */
+     /* load target into scratch register */
+-    insert_mov_immed_ptrsz(dcontext, (ptr_int_t)
+-                           PC_AS_JMP_TGT(dr_get_isa_mode(dcontext), target),
++    insert_mov_immed_ptrsz(dcontext, (ptr_int_t)target,
+                            opnd_create_reg(scratch), ilist, where, NULL, NULL);
+     /* even if a call and not a jmp, we can skip this if it doesn't return */
+     if (!jmp && returns) {","What I'm puzzling over is the reason that 850c10c0b8c3390608715074f0ce94379d039f2f put this here: it is called out in the commit message so there must have been something that did not have the lsb set. Not everything does: e.g., fragment tags deliberately do not have lsb set. There must have been something like that that would make its way here. Does a test suite run on arm hit any discrepancy here?",c,1,1,1
+"@@ -350,7 +350,7 @@ session_thread_set_tls_interaction_cb (ThreadClosure *thread_closure,
+   const char *cert_and_key_path = data; /* str\0str\0 in one malloc buf */
+   const char *cert_path = cert_and_key_path;
+   const char *key_path = cert_and_key_path + strlen (cert_and_key_path) + 1;
+-  glnx_unref_object OstreeTlsCertInteraction *interaction = NULL;
++  g_autoptr(OstreeTlsCertInteraction) interaction = NULL;
+ 
+   /* The GTlsInteraction instance must be created in the
+    * session thread so it uses the correct GMainContext. */","AFAICT, there's no autocleanup defined for `OstreeTlsCertInteraction` yet.",c,1,1,1
+"@@ -936,6 +936,8 @@ int32_t h2o_socket_getport(struct sockaddr *sa)
+ static void create_ossl(h2o_socket_t *sock)
+ {
+     sock->ssl->ossl = SSL_new(sock->ssl->ssl_ctx);
++    /* set app data to be used in h2o_socket_ssl_new_session_cb */
++    assert(SSL_set_app_data(sock->ssl->ossl, sock));
+     setup_bio(sock);
+ }
+ ","I think you need to split `assert` and the call to `SSL_set_app_data`. Otherwise, the call to the OpenSSL function will be eliminated when `NBEGUG` is set.",c,1,1,1
+"@@ -57,9 +57,8 @@ xfpga_fpgaGetPropertiesFromHandle(fpga_handle handle, fpga_properties *prop)
+ 	return result;
+ }
+ 
+-
+-fpga_result __FPGA_API__
+-xfpga_fpgaGetProperties(fpga_token token, fpga_properties *prop)
++fpga_result __FPGA_API__ xfpga_fpgaGetProperties(fpga_token token,
++						 fpga_properties *prop)
+ {
+ 	struct _fpga_properties *_prop;
+ 	fpga_result result = FPGA_OK;",Should we call the API `fpgaGetProperties` with a null token to allocate the properties structure?,c,1,1,1
+"@@ -34,6 +34,10 @@ static int writeCtagsPtagEntry (tagWriter *writer CTAGS_ATTR_UNUSED,
+                                                                 void *clientData);
+ static bool treatFieldAsFixed (int fieldType);
+ 
++#ifdef WIN32
++static enum filenameSepOp overrideFilenameSeparator (enum filenameSepOp currentSetting);
++#endif        /* WIN32 */
++
+ struct rejection {
+         bool rejectionInThisInput;
+ };",Did you intentionally remove this?,c,0,0,1
+"@@ -2,7 +2,7 @@
+ 
+ Name:           felix
+ Summary:        Project Calico virtual networking for cloud data centers
+-Version:        2.2.1
++Version:        2.4.0
+ Release:        1%{?dist}
+ License:        Apache-2
+ URL:            http://projectcalico.org",Erk. The fact this jumped from 2.2.1 to 2.4.0 - did we miss a change for 2.3.0?,c,1,1,1
+"@@ -136,6 +136,9 @@ static inline pmix_status_t _job_data_store(const char *nspace, void *cbdata)
+     int32_t cnt;
+     size_t nnodes;
+     uint32_t i;
++#if !(defined(PMIX_ENABLE_DSTORE) && (PMIX_ENABLE_DSTORE == 1))
++    uint32_t j;
++#endif
+     pmix_nrec_t *nrec, *nr2;
+     char **procs = NULL;
+     pmix_byte_object_t *bo;",Why this variable was introduced but no usages are visible?,c,1,1,1
+"@@ -3853,6 +3853,8 @@ ostree_repo_pull_with_options (OstreeRepo             *self,
+ 
+       while (g_variant_iter_loop (collection_refs_iter, ""(&s&s&s)"", &collection_id, &ref_name, &checksum))
+         {
++          if (!ostree_validate_rev (ref_name, error))
++            goto out;
+           g_hash_table_insert (requested_refs_to_fetch,
+                                ostree_collection_ref_new (collection_id, ref_name),
+                                (*checksum != '\0') ? g_strdup (checksum) : NULL);","We also need this in the next `else if` for `refs_to_fetch`, right?",c,1,1,1
+"@@ -1853,8 +1853,15 @@ presys_SetContextThread(dcontext_t *dcontext, reg_t *param_base)
+     /* FIXME : we are going to read and write to cxt, which may be unsafe */
+     ASSERT(tid != 0xFFFFFFFF);
+     LOG(THREAD, LOG_SYSCALLS|LOG_THREADS, IF_DGCDIAG_ELSE(1, 2),
+-        ""syscall: NtSetContextThread handle=""PFX"" tid=%d cxt->Xip=""PFX""\n"",
+-        thread_handle, tid, cxt->CXT_XIP);
++        ""syscall: NtSetContextThread handle=""PFX"" tid=%d cxt->Xip=""PFX"" flags=""PFX""\n"",
++        thread_handle, tid, cxt->CXT_XIP, cxt->ContextFlags);
++    if (get_thread_id() == tid) {
++        /* Simple case when called on own thread. */
++        /* FIXME : we should handle theses flags. */
++        ASSERT(!TEST(CONTEXT_CONTROL, cxt->ContextFlags) &&
++               !TEST(CONTEXT_DEBUG_REGISTERS, cxt->ContextFlags));
++        return execute_syscall;
++    }
+     mutex_lock(&thread_initexit_lock); /* need lock to lookup thread */
+     if (intercept_asynch_for_thread(tid, false/*no unknown threads*/)) {
+         priv_mcontext_t mcontext;","Include the issue number (so ""FIXME i#2249: ..."")",c,0,1,1
+"@@ -327,6 +327,14 @@ var _ = infrastructure.DatastoreDescribe(""_BPF-SAFE_ IPIP topology before adding
+                 BeforeEach(func() {
+                         ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+                         defer cancel()
++                        if bpfEnabled {
++                                infra.RemoveNodeAddresses(felixes[0])
++                        } else {
++                                for _, f := range felixes {
++                                        infra.RemoveNodeAddresses(f)
++                                }
++                        }
++
+                         listOptions := options.ListOptions{}
+                         if bpfEnabled {
+                                 listOptions.Name = felixes[0].Hostname",Why this difference?,c,1,0,1
+"@@ -44,7 +44,7 @@ def execute_buildcmd(command, silent=False, env=None, cwd=None):
+         if not line and proc.poll() is not None:
+             break
+         if not silent:
+-            print(line)
++            sys.stdout.write(line)
+ 
+     return proc.returncode
+ ",Should we check if the line is empty?,c,1,1,1
+"@@ -93,6 +93,11 @@ xfpga_fpgaOpen(fpga_token token, fpga_handle *handle, int flags)
+ 	// Init workspace table
+ 	_handle->wsid_root = NULL;
+ 
++	// Init metric enum
++	_handle->metric_enum_status = false;
++	_handle->dl_handle = NULL;
++	_handle->_bmc_metric_value = NULL;
++
+ 	// Open resources in exclusive mode unless FPGA_OPEN_SHARED is given
+ 	open_flags = O_RDWR | ((flags & FPGA_OPEN_SHARED) ? 0 : O_EXCL);
+ 	fddev = open(_token->devpath, open_flags);",The name dl_handle is too generic. Please rename to reflect its association with metrics.,c,1,1,1
+"@@ -156,6 +156,7 @@ static pmix_status_t query(pmix_query_t queries[], size_t nqueries, pmix_list_t
+                 }
+             }
+ 
++            pmix_output(0, ""SILENCE WARNINGS %u %u"", uid, gid);
+             if (0 == strcmp(queries[n].keys[m], PMIX_STORAGE_CAPACITY_LIMIT)) {
+                 /* ADD HERE:
+                  *",I think the cause of the CI failure is this debugging line that was left in place.,c,1,1,1
+"@@ -120,7 +120,11 @@ json_t *job_to_json (struct job *job, json_t *attrs, job_info_error_t *errp)
+         else if (!strcmp (attr, ""ranks"")) {
+             if (!(job->states_mask & FLUX_JOB_RUN))
+                 continue;
+-            val = json_string (job->ranks);
++            /* potentially NULL if R invalid */
++            if (job->ranks)
++                val = json_string (job->ranks);
++            else
++                val = json_string ("""");
+         }
+         else if (!strcmp (attr, ""expiration"")) {
+             if (!(job->states_mask & FLUX_JOB_RUN))",Suggest you break the inner block of the loop out to its own function as this is getting pretty long and the control flow harder to follow.,c,1,1,1
+"@@ -73,7 +73,7 @@ fpga_result read_sysfs(fpga_token token, char *sysfs_path,
+ 		resval = res;
+ 		goto out_destroy;
+ 	}
+-	printf(""size=%d \n"", size);
++
+ 	if (size > len) {
+ 		OPAE_ERR(""object size bigger then buffer size"");
+ 		resval = FPGA_EXCEPTION;",Could you submit this one in a separate pull request?,c,0,0,1
+"@@ -47,5 +47,11 @@ class ClangTidyPlistToFile(ResultHandler):
+         tidy_stdout = self.analyzer_stdout.splitlines()
+         generate_plist_from_tidy_result(output_file, tidy_stdout)
+ 
+-        if self.report_hash_type == 'context-free':
++        # In the earlier versions of CodeChecker Clang Tidy never used context
++        # free hash even if we enabled it with '--report-hash context-free'
++        # when calling the analyze command. To do not break every hash
++        # automatically when using this option we introduced a new choice for
++        # --report-hash option ('context-free-v2') and we still do not use
++        # context free hash for 'context-free' choice.
++        if self.report_hash_type == 'context-free-v2':
+             report.use_context_free_hashes(output_file)",why would `if self.report_hash_type == 'context-free-v2':` not enough here?,c,1,1,1
+"@@ -63,7 +63,9 @@ type L3RouteResolver struct {
+         blockToRoutes          map[string]set.Set
+         allPools               map[string]model.IPPool
+         workloadIDToCIDRs      map[model.WorkloadEndpointKey][]cnet.IPNet
++        nodeToCIDRs            map[string]set.Set
+         useNodeResourceUpdates bool
++        routeSource            string
+ }
+ 
+ type l3rrNodeInfo struct {","UT spotted that we weren't marking routes dirty when they targeted at Node and that node's IP changed. e.g., the case where a WEP appears in the syncer before the corresponding node does, so we don't know the node's IP. I added a new map to track the CIDRs for each node so that when the node IP changes we can mark those CIDRs dirty. Right now it's only used for the ""WorkloadIPs"" scenario. Need to decide if the same issue applies in the ""CalicoIPAM' case. I suspect it might. It looks like we have some logic present to detect when our own node IP changes, but we don't seem to handle when a remote node's IP changes.",c,1,1,0
+"@@ -77,9 +77,6 @@ struct flb_td *td_config_init(struct flb_output_instance *ins)
+             return NULL;
+         }
+     }
+-    else {
+-        ctx->region = FLB_TD_REGION_US;
+-    }
+ 
+     flb_plg_info(ctx->ins, ""Treasure Data / database='%s' table='%s'"",
+                  ctx->db_name, ctx->db_table);","If `tmp` is guaranteed not to be `NULL`, whole if statement has to be removed.",c,1,1,1
+"@@ -2836,10 +2836,12 @@ client_process_bb(dcontext_t *dcontext, build_bb_t *bb)
+ #    ifdef X86
+         if (!d_r_is_avx512_code_in_use()) {
+             if (ZMM_ENABLED()) {
+-                if (instr_may_write_zmm_register(inst)) {
+-                    LOG(THREAD, LOG_INTERP, 2, ""Detected AVX-512 code in use\n"");
+-                    d_r_set_avx512_code_in_use(true);
+-                    proc_set_num_simd_saved(MCXT_NUM_SIMD_SLOTS);
++                if (!instr_is_meta(inst)) {
++                    if (instr_may_write_zmm_or_opmask_register(inst)) {
++                        LOG(THREAD, LOG_INTERP, 2, ""Detected AVX-512 code in use\n"");
++                        d_r_set_avx512_code_in_use(true);
++                        proc_set_num_simd_saved(MCXT_NUM_SIMD_SLOTS);
++                    }
+                 }
+             }
+         }",Just move this down below the instr_is_meta check + continue below and then this if goes away.,c,1,1,1
+"@@ -394,6 +394,8 @@ static SSL_CTX *_create_ssl_context(int is_client) {
+ 
+         openssl_initialized = 1;
+ 
++        SSL_load_error_strings();
++
+         if(is_client) {
+                 #ifdef HAS_TLS_method
+                 method = TLS_client_method();",Move to if in line 390.,c,1,0,1
+"@@ -801,6 +801,13 @@ func findHostMTU(matchRegex *regexp.Regexp) (int, error) {
+ 			smallest = l.Attrs().MTU
+ 		}
+ 	}
++
++	if smallest == 0 {
++		// We failed to find a usable interface. Default the MTU of the host
++		// to 1460 - the smallest among common cloud providers.
++		log.Warn(""Failed to auto-detect host MTU, assuming 1460"")
++		return 1460, nil
++	}
+ 	return smallest, nil
+ }
+ ","You could improve this log by saying something like ""Failed to auto-detect host's MTU, no interfaces matched the MTU data interface pattern; to use auto MTU detection, set <param name> to match your host's interfaces.""",c,1,1,1
+"@@ -823,7 +823,10 @@ err:
+  */
+ static int job_get_ns_name (char *buf, int bufsz, flux_jobid_t id)
+ {
+-    return fluid_encode (buf, bufsz, id, FLUID_STRING_DOTHEX);
++    int n = snprintf (buf, bufsz - 1, ""job-%ju"", id);
++    if (n < 0 || n > bufsz - 1)
++        return -1;
++    return 0;
+ }
+ 
+ static double job_get_kill_timeout (flux_t *h)","i think you have to check `n` for validity before doing `n-1` b/c snprintf takes a `size_t`. although this is internal code (static function), so maybe it doesn't matter.",c,1,1,1
+"@@ -141,6 +141,8 @@ event_module_load(void *drcontext, const module_data_t *data, bool loaded)
+         entry = drvector_get_entry(&module_table.vector, i);
+         mod   = entry->data;
+         if (entry->unload &&
++            /* only check the main (containing) module */
++            entry->id == entry->containing_id &&
+             /* If the same module is re-loaded at the same address,
+              * we will try to use the existing entry.
+              */",Please add a note that this is needed b/c the loop is backward,c,1,1,1
+"@@ -4,11 +4,13 @@
+ #   This file is distributed under the University of Illinois Open Source
+ #   License. See LICENSE.TXT for details.
+ # -----------------------------------------------------------------------------
++from time import sleep
+ 
+ """"""Setup for the test package comment.""""""
+ 
+ from subprocess import CalledProcessError
+ 
++import json
+ import multiprocessing
+ import os
+ import shutil",This import might be unused.,c,1,1,1
+"@@ -741,6 +741,12 @@ read_evex(byte *pc, decode_info_t *di, byte instr_byte,
+             return pc;
+         }
+         *is_evex = true;
++#if !defined(STANDALONE_DECODER)
++        char pc_addr[IF_X64_ELSE(20, 12)];
++        snprintf(pc_addr, BUFFER_SIZE_ELEMENTS(pc_addr), PFX, pc);
++        SYSLOG(SYSLOG_ERROR, AVX_512_SUPPORT_INCOMPLETE, 2, get_application_name(),
++               get_application_pid(), pc_addr);
++#endif
+         info = &evex_prefix_extensions[0][1];
+     } else {
+         /* not evex */",style: always NULL_TERMINATE_BUFFER after snprintf,c,1,1,1
+"@@ -5555,10 +5555,6 @@ emit_special_ibl_xfer(dcontext_t *dcontext, byte *pc, generated_code_t *code, ui
+         INSTR_CREATE_cbz(dcontext, opnd_create_instr(skip_unlinked_tgt_jump),
+                          opnd_create_reg(SCRATCH_REG5)));
+     insert_shared_restore_dcontext_reg(dcontext, &ilist, NULL);
+-    /* i#4670: The unlinking case is observed to hit very infrequently on x86. The issue
+-     *  or the fix have not been observed on AArchXX yet.
+-     */
+-    ASSERT_NOT_TESTED();
+ #        if defined(AARCH64)
+     APP(&ilist,
+         INSTR_CREATE_ldr(","> iX: r We don't put ""iX"" in the title: just the branch name. So `s/iX: r/R/`.",c,0,0,1
+"@@ -41,6 +41,10 @@ static gboolean opt_verbose;
+ static gboolean opt_version;
+ static gboolean opt_print_current_dir;
+ 
++// TODO: make this public?  But no one sane wants to use our C headers
++// to find where to put files.  Maybe we can make it printed by the CLI?
++#define _OSTREE_EXT_DIR PKGLIBEXECDIR ""/ext""
++
+ static GOptionEntry global_entries[] = {
+   { ""verbose"", 'v', 0, G_OPTION_ARG_NONE, &opt_verbose, ""Print debug information during command processing"", NULL },
+   { ""version"", 0, 0, G_OPTION_ARG_NONE, &opt_version, ""Print version information and exit"", NULL },","`/usr/share/pkgconfig/ostree.pc` like `/usr/share/pkgconfig/systemd.pc`? Not a blocker, but I think it provides a natural place to provide info about the CLI. Another alternative is to put it in the `--version` output like `Features`.",c,1,1,1
+"@@ -1323,6 +1323,14 @@ os_terminate_with_code(dcontext_t *dcontext, terminate_flags_t flags, int exit_c
+     if (TEST(TERMINATE_CLEANUP, flags)) {
+         /* we enter from several different places, so rewind until top-level kstat */
+         KSTOP_REWIND_UNTIL(thread_measured);
++
++        /* This thread is on its way to exit, we are blocking all signals since any
++         * signal that reaches us now can be delayed until after the exit is complete.
++         * We may still receive a suspend signal for synchronization that we may need
++         * to reply to (i#2921).
++         */
++        block_all_signals_except(NULL, 1, SUSPEND_SIGNAL);
++
+         cleanup_and_terminate(dcontext, SYSNUM_EXIT_PROCESS, exit_code, 0,
+                               true /*whole process*/, 0, 0);
+     } else {","grammar: two separate sentences joined by a comma. Fix by s/, w/. W/ or sthg. Ditto multiple times below.",c,1,1,0
+"@@ -116,8 +116,7 @@ func fieldsByName(example interface{}) map[string]reflect.StructField {
+ var _ = DescribeTable(""Config parsing"",
+         func(key, value string, expected interface{}, errorExpected ...bool) {
+                 config := New()
+-                config.UpdateFrom(map[string]string{key: value},
+-                        EnvironmentVariable)
++                config.UpdateFrom(map[string]string{key: value}, EnvironmentVariable)
+                 configPtr := reflect.ValueOf(config)
+                 configElem := configPtr.Elem()
+                 fieldRef := configElem.FieldByName(key)","Note, another possibly unnecessary change here.",c,1,0,1
+"@@ -3432,7 +3432,7 @@ enum xnn_status xnn_initialize(const struct xnn_allocator* allocator) {
+     allocator = &xnn_default_allocator;
+   }
+   #ifdef _MSC_VER
+-    _InterlockedCompareExchangePointer(&init_allocator, allocator, NULL);
++    _InterlockedCompareExchangePointer((void* volatile)(&init_allocator), allocator, NULL);
+   #else
+     __sync_bool_compare_and_swap(&init_allocator, NULL, allocator);
+   #endif","Just `(void* volatile) &init_allocator`, no need for extra brackets.",c,1,1,1
+"@@ -3719,6 +3719,11 @@ static int check_hand_against_task(struct work_queue *q, struct work_queue_worke
+ 	if(w->resources->gpus.inuse + limits->gpus > overcommitted_resource_total(q, w->resources->gpus.total, 0)) {
+ 		ok = 0;
+ 	}
++		
++	//if the wall time for the worker is specified and there's not enough time for the task, then not ok
++	if(w->resources->time_left != -1 && w->resources->time_left < t->resources_requested->wall_time){
++		ok = 0;
++	}
+ 
+ 	rmsummary_delete(limits);
+ ","Here we should also check for t->resources_requested->end (if > 0). end is an absolute time, so something like: t->resources->time_left > t->resources_requested->end - timestamp(). or something like that. Also, not all tasks define -> wall_time, so you have to check for wall_time > 0 I would also change time_left != -1 to > 0 for consistency.",c,1,1,1
+"@@ -734,6 +734,17 @@ write_content_object (OstreeRepo         *self,
+     }
+   else
+     {
++      /* Update size metadata if configured */
++      if (indexable && object_file_type == G_FILE_TYPE_REGULAR)
++        {
++          struct stat stbuf;
++
++          if (!glnx_fstat (tmpf.fd, &stbuf, error))
++            return FALSE;
++
++          repo_store_size_entry (self, actual_checksum, unpacked_size, stbuf.st_size);
++        }
++
+       /* This path is for regular files */
+       if (!commit_loose_regfile_object (self, actual_checksum, &tmpf,
+                                         uid, gid, mode,",Can you elaborate on how this makes a difference? Aren't `phys_object_is_symlink` and `object_file_type == G_FILE_TYPE_REGULAR` already mutually exclusive?,c,1,1,1
+"@@ -226,7 +226,7 @@ void ValidationStateTracker::PreCallRecordCmdClearColorImage(VkCommandBuffer com
+                                                              uint32_t rangeCount, const VkImageSubresourceRange *pRanges) {
+     if (disabled[command_buffer_state]) return;
+ 
+-    auto cb_node = Get<CMD_BUFFER_STATE>(commandBuffer);
++    auto cb_node = GetWrite<CMD_BUFFER_STATE>(commandBuffer);
+     if (cb_node) {
+         cb_node->RecordTransferCmd(CMD_CLEARCOLORIMAGE, Get<IMAGE_STATE>(image));
+     }",All get writes this file. Same split lock concern.,cpp,0,0,0
+"@@ -981,7 +981,7 @@ void DatasetLoader::ConstructBinMappersFromTextData(int rank, int num_machines,
+         bin_type = BinType::CategoricalBin;
+       }
+       bin_mappers[i].reset(new BinMapper());
+-      if (sample_values.size() <= start[rank] + i) {
++      if (static_cast<int>(sample_values.size()) <= start[rank] + i) {
+         continue;
+       }
+       if (config_.max_bin_by_feature.empty()) {",thanks! Was seeing this warning too last night,cpp,1,0,0
+"@@ -179,6 +179,14 @@ Client::Client(EQStreamInterface* ieqs)
+         for (int client_filter = 0; client_filter < _FilterCount; client_filter++)
+                 ClientFilters[client_filter] = FilterShow;
+ 
++        m_TimeSinceLastPositionCheck = 0;
++        m_DistanceSinceLastPositionCheck = 0.0f;
++        m_ShadowStepExemption = 0;
++        m_KnockBackExemption = 0;
++        m_PortExemption = 0;
++        m_SenseExemption = 0;
++        m_AssistExemption = 0;
++        m_CheatDetectMoved = false;
+         mMovementManager->AddClient(this);
+         character_id = 0;
+         conn_state = NoPacketsReceived;","I know the source is inconsistent but I believe the effort is to have variable names snake case where possible for these, like `m_distance_since_last_position_check`, `m_cheat_detect_moved`, etc",cpp,1,1,1
+"@@ -46,7 +46,7 @@ void CleanTCPSocketsEvent::event(EventCode code, const char* /*msg*/)
+ {
+     if(code == EVENT_SUCCESS)
+     {
+-        mp_transport->clean_deleted_sockets();
++        //mp_transport->clean_deleted_sockets();
+     }
+ }
+ ","So... the whole class isn't necessary, didn't?",cpp,1,0,1
+"@@ -55,9 +55,10 @@ struct LocalFile : VirtualFileReader, VirtualFileWriter {
+ };
+ 
+ const char* kHdfsProto = ""hdfs://"";
+-const size_t kHdfsProtoLength = strlen(kHdfsProto);
+ 
+ #ifdef USE_HDFS
++const size_t kHdfsProtoLength = strlen(kHdfsProto);
++
+ struct HDFSFile : VirtualFileReader, VirtualFileWriter {
+   HDFSFile(const std::string& filename, int flags) : filename_(filename), flags_(flags) {}
+   ~HDFSFile() {",maybe `const size_t kHdfsProtoLength = static_cast<size_t>(strlen(kHdfsProto));` ?,cpp,1,1,1
+"@@ -1,6 +1,7 @@
+ // unit tests creating LAMMPS instances via the library interface
+ 
+ #include ""lammps.h""
++#define LAMMPS_LIB_MPI 1
+ #include ""library.h""
+ #include <cstdio> // for stdin, stdout
+ #include <mpi.h>",Should this be here?,cpp,1,0,1
+"@@ -15,6 +15,7 @@
+ // converted to color.
+ 
+ #include <glog/logging.h>
++#include <gflags/gflags.h>
+ #include <leveldb/db.h>
+ #include <leveldb/write_batch.h>
+ #include <lmdb.h>",Consider moving this up above glog.,cpp,1,1,1
+"@@ -294,6 +294,9 @@ const std::unordered_set<std::string>& Config::parameter_set() {
+   ""gpu_platform_id"",
+   ""gpu_device_id"",
+   ""gpu_use_dp"",
++#ifdef USE_CUDA
++  ""num_gpu"", /* LGBM_CUDA */
++#endif
+   });
+   return params;
+ }","I remember these codes are auto-generated, so we cannot manually change it. @StrikerRUS to confirm.",cpp,0,1,1
+"@@ -43,7 +43,8 @@ data_reader_merge_features::data_reader_merge_features(
+   const data_reader_merge_features& other) :
+   generic_compound_data_reader(other),
+   m_data_size(other.m_data_size) {
+-  m_label_reader = other.m_label_reader->copy();
++  if(other.m_label_reader != nullptr) 
++    m_label_reader = other.m_label_reader->copy();
+ }
+ 
+ data_reader_merge_features& data_reader_merge_features::operator=(",We should handle the case where `other.m_label_reader == nullptr`.,cpp,1,1,1
+"@@ -278,6 +278,10 @@ String BuildFixes()
+     Settings.WiFi_sensitivity_margin = 3; // Margin in dBm on top of sensitivity.
+   }
+ 
++  if (Settings.Build < 20113) {
++    Settings.JSONBoolWithQuotes(true); // Set JSON output to backward compatible
++  }
++
+   Settings.Build = BUILD;
+   return SaveSettings();
+ }","Why not invert the boolean logic, so that a `0` is the default value? This way you don't need this transition and also new default settings will be the old behavior.",cpp,1,1,1
+"@@ -443,12 +443,13 @@ TEST (store, pruned_load)
+ 					nano::block_hash random_hash;
+ 					nano::random_pool::generate_block (random_hash.bytes.data (), random_hash.bytes.size ());
+ 					store->pruned.put (transaction, random_hash);
++					hashes.insert (random_hash);
+ 				}
+ 			}
+ 			if (!nano::rocksdb_config::using_rocksdb_in_tests ())
+ 			{
+ 				auto transaction (store->tx_begin_write ());
+-				for (auto k (0); k < batch_size / 2; ++k)
++				for (auto k (0); !hashes.empty () && k < batch_size / 2; ++k)
+ 				{
+ 					auto hash (hashes.begin ());
+ 					store->pruned.del (transaction, *hash);","Do we need the check `!hashes.empty ()`? This is a unit test, if anything is wrong, we want to fail loud and clear rather than handle it quietly. So I would say that we should ASSERT that hashes is not empty.",cpp,1,1,1
+"@@ -201,13 +201,13 @@ TEST_F(MutateValidatorTest, UpdateEdgeTest) {
+     auto cmd = ""UPDATE EDGE ON study \""Tom\""->\""Lily\"" SET count = 1"";
+     ASSERT_FALSE(checkResult(cmd, {}));
+   }
+-  // Wrong expr ""$^.peson.age""
++  // Wrong expr ""$^.person_.age""
+   {
+     auto cmd =
+         ""UPDATE EDGE \""Tom\""->\""Lily\"" OF like ""
+         ""SET end = like.end + 1 ""
+-        ""WHEN $^.peson.age >= 18 ""
+-        ""YIELD $^.peson.age AS age, like.end AS end"";
++        ""WHEN $^.person_.age >= 18 ""
++        ""YIELD $^.person_.age AS age, like.end AS end"";
+     ASSERT_FALSE(checkResult(cmd, {}));
+   }
+   // 1.0 syntax succeed","Happy to drop, but I find it's easier to understand things are typos when they're explicit, and `peson` isn't particularly obvious...",cpp,1,1,1
+"@@ -332,7 +332,7 @@ TEST_F(UDPv4Tests, send_to_allowed_interface)
+ 
+         if (IsAddressDefined(locator))
+         {
+-            descriptor.interfaceWhiteList.emplace_back(""127.0.0.1"");
++            // descriptor.interfaceWhiteList.emplace_back(""127.0.0.1"");
+             descriptor.interfaceWhiteList.emplace_back(IPLocator::toIPv4string(locator));
+             UDPv4Transport transportUnderTest(descriptor);
+             transportUnderTest.init();","Can we remove this line, please?",cpp,1,0,1
+"@@ -832,7 +832,6 @@ ParKeyWord ParKeyWords::keyWords_[] = {
+   ParKeyWord(""PROTECTION"",         TOK_PROTECTION,  NONRESTOKEN_),  
+   ParKeyWord(""PROTOTYPE"",          TOK_PROTOTYPE,   COMPAQ_|RESWORD_),
+   ParKeyWord(""PUBLIC"",             TOK_PUBLIC,      ANS_|RESWORD_),
+-  ParKeyWord(""PUBLISH"",            TOK_PUBLISH,     NONRESTOKEN_),
+   ParKeyWord(""PURGEDATA"",          TOK_PURGEDATA,   NONRESTOKEN_),
+   ParKeyWord(""QID"",                TOK_QID,         NONRESTOKEN_),
+   ParKeyWord(""QID_INTERNAL"",       TOK_QID_INTERNAL,  NONRESTOKEN_),",sqlci/sqlci_yacc.y defines PUBLISH and UNPUBLISH as token. May want to remove this also.,cpp,1,1,1
+"@@ -2971,6 +2971,15 @@ void rai::add_node_options (boost::program_options::options_description & descri
+ bool rai::handle_node_options (boost::program_options::variables_map & vm)
+ {
+ 	auto result (false);
++	boost::filesystem::path data_path;
++	if (vm.count (""data_path""))
++	{
++		data_path = boost::filesystem::path (vm [""data_path""].as <std::string> ());
++	}
++	else
++	{
++		data_path = rai::working_path ();
++	}
+ 	if (vm.count (""account_create""))
+ 	{
+ 		if (vm.count (""wallet"") == 1)",This would be better as a ternary IMO.,cpp,1,0,1
+"@@ -178,10 +178,10 @@ TEST (work, eco_pow)
+ 	std::future<std::chrono::nanoseconds> future2 = promise2.get_future ();
+ 
+ 	std::thread thread1 (work_func, std::ref (promise1), std::chrono::nanoseconds (0));
+-	std::thread thread2 (work_func, std::ref (promise2), std::chrono::nanoseconds (100000));
++	std::thread thread2 (work_func, std::ref (promise2), std::chrono::nanoseconds (10000000));
+ 
+ 	// Confirm that the eco pow rate limiter is working.
+-	// It's possible under some unlucky circumstances that this fails.
++	// It's possible under some unlucky circumstances that this fails to the random nature of valid work generation. 
+ 	ASSERT_LT (future1.get (), future2.get ());
+ 
+ 	thread1.join ();","Maybe `std::chrono::milliseconds (10)` is a bit more readable. Other than that, LGTM and the test now survives 1000 iterations.",cpp,1,1,1
+"@@ -217,7 +217,7 @@ void nano::bootstrap_connections::populate_connections (bool repeat)
+ 			if (auto client = c.lock ())
+ 			{
+ 				new_clients.push_back (client);
+-				endpoints.insert (client->socket->remote_endpoint ());
++				endpoints.insert (*client->socket->remote_endpoint ());
+ 				double elapsed_sec = client->elapsed_seconds ();
+ 				auto blocks_per_sec = client->sample_block_rate ();
+ 				rate_sum += blocks_per_sec;",Is this guaranteed to have a value? Isn't remote_endpoint the side that can switch to ANYADDR?,cpp,1,1,1
+"@@ -925,7 +925,6 @@ RelExpr *RelSample::bindNode(BindWA *bindWA)
+   RelExpr* myChild = child(0);
+   if (myChild->getOperatorType() == REL_SCAN &&
+       (static_cast<Scan*>(myChild))->isHbaseTable() &&
+-      myChild->selectionPred().entries() == 0 &&
+       isSimpleRandomRelative() &&
+       trafSampleRate <= 1.0f)
+     {","I would have assumed that we still need this check for a query with a sample clause and a predicate ? Not for update stats, but for some other SELECT statement with SAMPLE. Simple predicates can be pushed down only for regular format rows, for aligned format rows predicate evaluation will be in Trafodion.",cpp,1,1,1
+"@@ -139,7 +139,12 @@ CmpContext::CmpContext(UInt32 f, CollHeap * h)
+   optPCodeCache_(NULL),                       // just to be safe ...
+   CDBList_(NULL),
+   allControlCount_(0),
+-  optSimulator_(NULL)
++  optSimulator_(NULL),
++  hosts_(h),
++  invocationInfos_(h),
++  planInfos_(h),
++  routineHandles_(h),
++  ddlObjs_(h)
+ {
+   SetMode(isDynamicSQL() ? STMT_DYNAMIC : STMT_STATIC);
+ ","My bad, sorry for adding these leaks.",cpp,0,0,1
+"@@ -199,6 +199,18 @@ int main(int argc, const char **argv) {
+ #if defined(HIPIFY_CLANG_RES)
+     Tool.appendArgumentsAdjuster(ct::getInsertArgumentAdjuster(""-resource-dir="" HIPIFY_CLANG_RES));
+ #endif
++    if (!MacroNames.empty()) {
++      for (std::string s : MacroNames) {
++        Tool.appendArgumentsAdjuster(ct::getInsertArgumentAdjuster(""-D"", ct::ArgumentInsertPosition::END));
++        Tool.appendArgumentsAdjuster(ct::getInsertArgumentAdjuster(s.c_str(), ct::ArgumentInsertPosition::END));
++      }
++    }
++    if (!IncludeDirs.empty()) {
++      for (std::string s : IncludeDirs) {
++        Tool.appendArgumentsAdjuster(ct::getInsertArgumentAdjuster(""-I"", ct::ArgumentInsertPosition::END));
++        Tool.appendArgumentsAdjuster(ct::getInsertArgumentAdjuster(s.c_str(), ct::ArgumentInsertPosition::END));
++      }
++    }
+     Tool.appendArgumentsAdjuster(ct::getClangSyntaxOnlyAdjuster());
+     Statistics& currentStat = Statistics::current();
+     // Hipify _all_ the things!","possible this and second checks are redundant otherwise, lgtm",cpp,1,1,1
+"@@ -61,6 +61,9 @@ void ThroughputPublisher::DataPubListener::onPublicationMatched(
+     if (info.status == MATCHED_MATCHING)
+     {
+         ++throughput_publisher_.data_discovery_count_;
++        std::cout << C_RED << ""Pub: DATA Pub Matched ""
++                  << throughput_publisher_.data_discovery_count_ << ""/"" << throughput_publisher_.subscribers_
++                  << C_DEF << std::endl;
+     }
+     else
+     {","Should this be done before unlocking, as it is done below?",cpp,0,1,1
+"@@ -350,7 +350,7 @@ if __name__ == ""__main__"":
+               ],
+           },
+           maintainer='Guolin Ke',
+-          maintainer_email='guolin.ke@microsoft.com',
++          maintainer_email='guolin.ke@outlook.com',
+           zip_safe=False,
+           cmdclass={
+               'install': CustomInstall,",Ah thanks for catching this! Sorry I didn't think of it on #4633. Thankfully it's not as critical with PyPI as it is with CRAN. @shiyu1994 should this be changed to your name and email? My assumption is that Microsoft would prefer to have a Microsoft employee as the primary contact for these artifacts.,cpp,0,0,1
+"@@ -121,7 +121,8 @@ TEST (node, send_single_observing_peer)
+         }
+ }
+ 
+-TEST (node, send_single_many_peers)
++// TODO: rai::system fails to connect peers
++TEST (node, DISABLED_send_single_many_peers)
+ {
+         rai::system system (24000, 10);
+         rai::keypair key2;",Due to the `max_peers_per_ip` reduction it seems,cpp,1,0,1
+"@@ -281,7 +281,10 @@ bool nano::election::transition_time (nano::confirmation_solicitor & solicitor_a
+ 		result = true;
+ 		state_change (state_m.load (), nano::election::state_t::expired_unconfirmed);
+ 		status.type = nano::election_status_type::stopped;
+-		log_votes (tally ());
++		if (node.config.logging.election_expiration_tally_logging ())
++		{
++			log_votes (tally (), ""Election expired"");
++		}
+ 	}
+ 	return result;
+ }","This should probably be ""Election expired: "" otherwise it smashes in to ""Vote tally...""",cpp,1,1,1
+"@@ -244,14 +244,14 @@ bool RowReader::processHeader(folly::StringPiece row) {
+     }
+     offsets_.resize(numFields + 1, -1);
+     offsets_[0] = 0;
+-    blockOffsets_.push_back(std::make_pair(0, 0));
++    blockOffsets_.emplace_back(std::make_pair(0, 0));
+     blockOffsets_.reserve(numOffsets);
+     for (uint32_t i = 0; i < numOffsets; i++) {
+         int64_t offset = 0;
+         for (int32_t j = 0; j < numBytesForOffset_; j++) {
+             offset |= (uint64_t(*(it++)) << (8 * j));
+         }
+-        blockOffsets_.push_back(std::make_pair(offset, 0));
++        blockOffsets_.emplace_back(std::make_pair(offset, 0));
+         offsets_[16 * (i + 1)] = offset;
+     }
+     // Now done with the header",You should have known that `std::make_pair` is not necessary here if `emplace_back` used.,cpp,1,1,1
+"@@ -428,6 +428,12 @@ void encodeVectorTile(const datafacade::ContiguousInternalMemoryDataFacadeBase &
+                 const auto &edge = edges[edge_index];
+                 const auto geometry_id = get_geometry_id(edge);
+ 
++                // Get coordinates for start/end nodes of segment (NodeIDs u and v)
++                const auto a = facade.GetCoordinateOfNode(edge.u);
++                const auto b = facade.GetCoordinateOfNode(edge.v);
++                // Calculate the length in meters
++                const double length = osrm::util::coordinate_calculation::haversineDistance(a, b);
++
+                 // Weight values
+                 const auto forward_weight_vector =
+                     facade.GetUncompressedForwardWeights(geometry_id);","when trying to refactor this I thought about this line a bit. It adds some overhead for calculating the distances. Whats is you opinion here @danpat on the potential slowdown? I feel it might be alright, but I am not entirely sure. (This length calculation is already happening further down as well)",cpp,0,0,1
+"@@ -11115,6 +11115,17 @@ bool CoreChecks::ValidateCreateSwapchain(const char *func_name, VkSwapchainCreat
+     }
+ 
+     auto physical_device_state = GetPhysicalDeviceState();
++    bool skip = false;
++    VkSurfaceTransformFlagBitsKHR currentTransform = physical_device_state->surfaceCapabilities.currentTransform;
++    if ((pCreateInfo->preTransform & currentTransform) != pCreateInfo->preTransform) {
++        skip |= log_msg(report_data, VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PHYSICAL_DEVICE_EXT,
++                        HandleToUint64(physical_device), kVUID_Core_Swapchain_PreTransform,
++                        ""%s: pCreateInfo->preTransform (0x%"" PRIx32 "") doesn't match the currentTransform (0x%"" PRIx32
++                        "") returned by vkGetPhysicalDeviceSurfaceCapabilitiesKHR, the presentation engine will transform the image ""
++                        ""content as part of the presentation operation."",
++                        func_name, pCreateInfo->preTransform, currentTransform);
++    }
++
+     if (physical_device_state->vkGetPhysicalDeviceSurfaceCapabilitiesKHRState == UNCALLED) {
+         if (log_msg(report_data, VK_DEBUG_REPORT_WARNING_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_PHYSICAL_DEVICE_EXT,
+                     HandleToUint64(physical_device), kVUID_Core_DrawState_SwapchainCreateBeforeQuery,",Please use string_VkSurfaceTransformFlagBitsKHR() to convert transform bits to string.,cpp,1,1,1
+"@@ -43,7 +43,17 @@ services::Status Parameter::check() const
+     return services::Status();
+ }
+ }
++namespace interface2
++{
++Parameter::Parameter(size_t nClasses) : nClasses(nClasses), resultsToEvaluate(computeClassLabels) {}
+ 
++services::Status Parameter::check() const
++{
++    DAAL_CHECK_EX(nClasses > 0, services::ErrorIncorrectParameter, services::ParameterName, nClassesStr());
++    DAAL_CHECK_EX(resultsToEvaluate != 0, services::ErrorIncorrectParameter, services::ParameterName, resultsToEvaluateStr())
++    return services::Status();
++}
++}
+ namespace training
+ {
+ namespace interface1",On row 106 in current file we always cast to interface2::Parammeter class. That`s wrong. Branching should be added.,cpp,1,1,1
+"@@ -204,6 +204,14 @@ void Tree::AddPredictionToScore(const Dataset* data,
+   }
+ }
+ 
++void Tree::AddMaxValueToScore(double& score) const {
++    score += *std::max_element(leaf_value_.begin(), leaf_value_.end());
++}
++
++void Tree::AddMinValueToScore(double& score) const {
++    score += *std::min_element(leaf_value_.begin(), leaf_value_.end());
++}
++
+ #undef PredictionFun
+ 
+ std::string Tree::ToString() const {","why not just return the max/min values, and add outside?",cpp,1,1,1
+"@@ -10929,9 +10929,12 @@ static bool AddAttachmentUse(const layer_data *dev_data, RenderPassCreateVersion
+     const char *const function_name = use_rp2 ? ""vkCreateRenderPass2KHR()"" : ""vkCreateRenderPass()"";
+ 
+     if (uses & new_use) {
+-        log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0,
+-                kVUID_Core_DrawState_InvalidRenderpass, ""%s: subpass %u already uses attachment %u as a %s attachment."",
+-                function_name, subpass, attachment, StringAttachmentType(new_use));
++        if (attachment_layouts[attachment] != new_layout) {
++            vuid = use_rp2 ? ""VUID-VkSubpassDescription2KHR-layout-02528"" : ""VUID-VkSubpassDescription-layout-02519"";
++            log_msg(dev_data->report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT, 0, vuid,
++                    ""%s: subpass %u already uses attachment %u with a different image layout (%s vs %s)."", function_name, subpass,
++                    attachment, string_VkImageLayout(attachment_layouts[attachment]), string_VkImageLayout(new_layout));
++        }
+     } else if (uses & ~ATTACHMENT_INPUT || (uses && (new_use == ATTACHMENT_RESOLVE || new_use == ATTACHMENT_PRESERVE))) {
+         /* Note: input attachments are assumed to be done first. */
+         vuid = use_rp2 ? ""VUID-VkSubpassDescription2KHR-pPreserveAttachments-03074""",include the two conflicting layouts in the message -- `string_VkImageLayout` to convert them to human readable strings.,cpp,1,1,1
+"@@ -246,6 +246,18 @@ void model::replace_weights(std::vector<weights*>& new_weights) {
+ 
+ }
+ 
++void model::replace_weights_by_name(std::vector<weights*>& new_weights) {
++  if (new_weights.empty()) {
++    throw lbann_exception(""Model::replace_weights_by name failed : because new_weight vector is empty."");
++  }
++  for(size_t i = 0; i < new_weights.size(); ++i) {
++     for (size_t j = 0; j < m_weights.size(); ++j) {
++       if(m_weights[j]->get_name() == new_weights[i]->get_name())
++         m_weights[j]->set_values(new_weights[i]->get_values());
++     }
++   }
++}
++
+ optimizer* model::create_optimizer() const {
+   if (m_default_optimizer != nullptr) {
+     return m_default_optimizer->copy();",I don't think this check is necessary. The function can just do nothing if the input vector is empty.,cpp,1,1,1
+"@@ -248,12 +248,13 @@ void runServer(Int32 argc, char **argv)
+   {
+      cout << tmbuf << "" RMS Shared segment exists, attaching to it, shmid=""<< shmid << "", key="" << (key_t)getStatsSegmentId() << ""\n"";
+   }
+-  if ((statsGlobalsAddr = shmat(shmid, getRmsSharedMemoryAddr(), 0))
++  if ((statsGlobalsAddr = shmat(shmid, getRmsSharedMemoryAddr(), SHM_REMAP | SHM_RND))
+ 		== (void *)-1)
+   {
+     cout << tmbuf << ""Shmat failed, shmid="" <<shmid << "", key="" << (key_t) getStatsSegmentId() << "", Error code : ""  << errno << ""("" << strerror(errno) << "")\n"";
+     exit(errno);
+   }
++  gRmsSharedMemoryAddr_ = statsGlobalsAddr;
+   char *statsGlobalsStartAddr = (char *)statsGlobalsAddr;
+   if (createStatsGlobals)
+   {","This shared segment can't be remapped because RMS shared segment have pointers stored within its space. All the processes attaching to the shared segment should attach at the same address. If the process is unable to do it, then the process can't participate in updating the shared segment. This can lead to corruption in the shared segment",cpp,1,1,1
+"@@ -633,7 +633,7 @@ std::string DynamicStateString(CBStatusFlags input_value) {
+     while (input_value) {
+         if (input_value & 1) {
+             if (!ret.empty()) ret.append(""|"");
+-            ret.append(string_VkDynamicState(ConvertToDynamicState(static_cast<CBStatusFlagBits>(1 << index))));
++            ret.append(string_VkDynamicState(ConvertToDynamicState(static_cast<CBStatusFlagBits>(1llu << index))));
+         }
+         ++index;
+         input_value >>= 1;","Just curious, was this causing an error?",cpp,1,0,1
+"@@ -41,6 +41,8 @@ LXQtMountPlugin::LXQtMountPlugin(const ILXQtPanelPluginStartupInfo &startupInfo)
+ 
+     connect(mButton, &QToolButton::clicked, mPopup, &Popup::showHide);
+     connect(mPopup, &Popup::visibilityChanged, mButton, &QToolButton::setDown);
++    // Note: postpone creation of the mDeviceAction to not fire it in startup time
++    QTimer::singleShot(0, this, &LXQtMountPlugin::settingsChanged);
+ }
+ 
+ LXQtMountPlugin::~LXQtMountPlugin()","@lxde/lxqt Do we want to fire the action (info, popup) on the panel startup or not?",cpp,0,0,1
+"@@ -40,11 +40,8 @@ namespace PrepareRelease
+ 
+             foreach (var outputDirectory in outputDirectories)
+             {
+-                var filename = Path.Combine(outputDirectory, ""integrations.json"");
+                 var utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+-                Console.WriteLine($""Writing {filename}..."");
+-                File.WriteAllText(filename, json, utf8NoBom);
+-
++                
+                 // CallTarget
+                 var calltargetPath = Path.Combine(outputDirectory, ""src"", ""Datadog.Trace"", ""ClrProfiler"", ""InstrumentationDefinitions.Generated.cs"");
+                 Console.WriteLine($""Writing {calltargetPath}..."");","Doesn't have to be done in this PR, but we can also delete the `json` and `serializerSettings` variables, and the `IntegrationGroups.CallSite` property,",.cs,0,1,1
+"@@ -34,7 +34,12 @@ namespace Microsoft.CodeAnalysis.Sarif
+ 
+                         var sha256Cng = new SHA256Cng();
+                         checksum = sha256Cng.ComputeHash(bufferedStream);
+-                        sha256 = BitConverter.ToString(checksum).Replace(""-"", String.Empty);                            
++                        sha256 = BitConverter.ToString(checksum).Replace(""-"", String.Empty);
++
++                        // disposals
++                        md5Cng.Dispose();
++                        sha1Cng.Dispose();
++                        sha256Cng.Dispose();                        
+                     }
+                 }
+             }",As we've discussed: Use `using` statements to ensure that `Dispose` is called even if the intervening code throws an exception.,.cs,1,1,1
+"@@ -202,6 +202,19 @@ namespace Microsoft.AspNetCore.Server.KestrelTests
+             }
+         }
+ 
++        [Fact]
++        public async Task BadRequestIfContentLengthInvalid()
++        {
++            using (var server = new TestServer(context => { return Task.FromResult(0); }))
++            {
++                using (var connection = server.CreateConnection())
++                {
++                    await connection.Send(""GET / HTTP/1.1\r\nContent-Length: NaN\r\n\r\n"");
++                    await ReceiveBadRequestResponse(connection, ""400 Bad Request"", server.Context.DateHeaderValue);
++                }
++            }
++        }
++
+         private async Task ReceiveBadRequestResponse(TestConnection connection, string expectedResponseStatusCode, string expectedDateHeaderValue)
+         {
+             await connection.ReceiveForcedEnd(",Test with negative value too.,.cs,1,0,1
+"@@ -23,6 +23,7 @@ namespace Nethermind.Wallet
+     public interface IBasicWallet
+     {
+         Signature Sign(Keccak message, Address address);
++        bool IsUnlocked(Address address);
+         
+         void Sign(Transaction tx, int chainId)
+         {",This look like a common case when we decide to move only one of a group of transactions but truly we should move ll of them or none. I think that if you need to check whether address is unlocked then you should use IWallet instead. IBasicWallet does not include locking / unlocking.,.cs,1,1,1
+"@@ -95,7 +95,7 @@ namespace Nethermind.Blockchain.Processing
+                     return false;
+                 }
+ 
+-                if (transaction.IsEip1559 && !transaction.IsServiceTransaction && senderBalance < (UInt256)transaction.GasLimit * transaction.MaxFeePerGas)
++                if (eip1559Enabled && !transaction.IsServiceTransaction && senderBalance < (UInt256)transaction.GasLimit * transaction.MaxFeePerGas + transaction.Value)
+                 {
+                     e.Set(TxAction.Skip, $""MaxFeePerGas ({transaction.MaxFeePerGas}) times GasLimit {transaction.GasLimit} is higher than sender balance ({senderBalance})"");
+                     return false;","This and the check above in line 90 look similar (same?) as the ones in TransactionProcessor, should we have an extension method or something?",.cs,1,1,1
+"@@ -59,7 +59,14 @@ namespace Datadog.Trace.Tests
+                 Environment = env
+             };
+             var tracer = new Tracer(settings);
+-            Tracer.Instance = tracer;
++            if (Ci.CIVisibility.IsRunning)
++            {
++                Tracer.UnsafeSetTracerInstance(tracer);
++            }
++            else
++            {
++                Tracer.Instance = tracer;
++            }
+ 
+             using (var parentScope = Tracer.Instance.StartActive(""parent""))
+             using (var childScope = Tracer.Instance.StartActive(""child""))",Do we need the condition? We could use `Tracer.UnsafeSetTracerInstance(tracer);` in either case right?,.cs,1,1,1
+"@@ -14,7 +14,9 @@
+ // limitations under the License.
+ // </copyright>
+ 
++using System;
+ using System.Diagnostics;
++using OpenTelemetry.Exporter.Jaeger.Implementation;
+ 
+ namespace OpenTelemetry.Exporter
+ {",I would move this section to a new method - eg `SetOptionsViaEnvironmentVariables`.,.cs,1,0,1
+"@@ -13,8 +13,10 @@ namespace Microsoft.AspNet.Server.Kestrel.Http
+ {
+     public class Connection : ConnectionContext, IConnectionControl
+     {
+-        private static readonly Action<UvStreamHandle, int, object> _readCallback = ReadCallback;
+-        private static readonly Func<UvStreamHandle, int, object, Libuv.uv_buf_t> _allocCallback = AllocCallback;
++        private static readonly Action<UvStreamHandle, int, object> _readCallback = 
++            (handle, status, state) => ReadCallback(handle, status, state);
++        private static readonly Func<UvStreamHandle, int, object, Libuv.uv_buf_t> _allocCallback = 
++            (handle, suggestedsize, state) => AllocCallback(handle, suggestedsize, state);
+ 
+         private static long _lastConnectionId;
+ ","Do you have to use the `=>` to remove the closure allocation? I think I remember that being the case at one point, but I figured that was a compiler bug that should be fixed by now.",.cs,1,1,1
+"@@ -38,7 +38,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Transport.Sockets
+             _remoteEndPoint = (IPEndPoint)_socket.RemoteEndPoint;
+         }
+ 
+-        public async void Start(IConnectionHandler connectionHandler)
++        public async Task Start(IConnectionHandler connectionHandler)
+         {
+             try
+             {",Can we rename this to `StartAsync`?,.cs,1,1,1
+"@@ -21,5 +21,6 @@ namespace Nethermind.Core.Specs.ChainSpecStyle
+     public interface IChainSpecLoader
+     {
+         ChainSpec Load(byte[] data);
++        ChainSpec Load(string jsonData);
+     }
+ }",i remember there was a reason for which I had to make it byte[] only... I do not remember the exact reason. I think that not every implementation could provide a string (do not know why),.cs,1,0,1
+"@@ -45,17 +45,6 @@ namespace Microsoft.CodeAnalysis.Sarif
+ 
+         private static string[] InvalidFiles = new string[]
+         {
+-            @""ClangAnalyzer\ArrayDataTypes.xml.sarif"",
+-            @""ClangAnalyzer\BadMissingString.xml.sarif"",
+-            @""ClangAnalyzer\ClangAnalyzer_issueLog1_raw.xml.sarif"",
+-            @""ClangAnalyzer\DictionaryDataTypes.xml.sarif"",
+-            @""ClangAnalyzer\DivByZero.xml.sarif"",
+-            @""ClangAnalyzer\FileNumberCoverage.xml.sarif"",
+-            @""ClangAnalyzer\GarbageValueLog.xml.sarif"",
+-            @""ClangAnalyzer\MediumLog.xml.sarif"",
+-            @""ClangAnalyzer\MissingLocation.xml.sarif"",
+-            @""ClangAnalyzer\RealLog.xml.sarif"",
+-            @""CppCheck\CppCheck_issueLog1_raw.xml.sarif""
+         };
+ 
+         public static IEnumerable<object[]> TestCases",I like that you left the empty array in there.,.cs,1,0,1
+"@@ -259,7 +259,7 @@ namespace OpenTelemetry.Context.Propagation
+                 return Convert.ToByte(c);
+             }
+ 
+-            throw new ArgumentOutOfRangeException(nameof(c), $""Invalid character: {c}."");
++            throw new ArgumentOutOfRangeException(nameof(c), c, $""Invalid character: {c}."");
+         }
+     }
+ }",A general question - do we want all the exception messages to be ended with period `.` or not. I don't have strong opinion on either way. I would suggest that we 1) follow the .NET convention (if there is one) and 2) make it consistent in this repo.,.cs,1,1,1
+"@@ -23,6 +23,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Internal
+ 
+         private static readonly Action<object, object> _postCallbackAdapter = (callback, state) => ((Action<object>)callback).Invoke(state);
+         private static readonly Action<object, object> _postAsyncCallbackAdapter = (callback, state) => ((Action<object>)callback).Invoke(state);
++        private static readonly Libuv.uv_walk_cb _heartbeatWalkCallback = (ptr, arg) =>
++        {
++            var handle = UvMemory.FromIntPtr<UvHandle>(ptr);
++            (handle as UvStreamHandle)?.Connection?.Tick((long)arg);
++        };
+ 
+         // maximum times the work queues swapped and are processed in a single pass
+         // as completing a task may immediately have write data to put on the network",nit: call it `_heartbeatWalkCallbackAdapter` to be consistent with the other ones.,.cs,1,1,1
+"@@ -144,12 +144,17 @@ namespace pwiz.Skyline.Model.Irt
+         {
+             RequireUsable();
+ 
+-            var returnStandard = peptides.Where(_database.IsStandard).Distinct().ToArray();
++            var pepArr = peptides.ToArray();
++            var returnStandard = pepArr.Where(_database.IsStandard).Distinct().ToArray();
+             var returnCount = returnStandard.Length;
+             var databaseCount = _database.StandardPeptideCount;
+ 
+             if (!IsAcceptableStandardCount(databaseCount, returnCount))
++            {
++                Console.Out.WriteLine(@""Database standards: {0}"", string.Join(@""; "", _database.StandardPeptides.Select(pep => pep.ToString())));
++                Console.Out.WriteLine(@""Chosen ({0}): {1}"", pepArr.Length, string.Join(@""; "", pepArr.Select(pep => pep.ToString())));
+                 throw new IncompleteStandardException(this);
++            }
+ 
+             minCount = MinStandardCount(databaseCount);
+             return returnStandard;","The pep.ToString() is not necessary. You can just do: string.Join(@""; "", _database.StandardPeptides)",.cs,1,1,1
+"@@ -10,10 +10,13 @@ using Microsoft.AspNetCore.Server.Kestrel.Filter;
+ using Microsoft.AspNetCore.Server.Kestrel.Filter.Internal;
+ using Microsoft.AspNetCore.Server.Kestrel.Internal.Infrastructure;
+ using Microsoft.AspNetCore.Server.Kestrel.Internal.Networking;
++using Microsoft.Extensions.Internal;
+ using Microsoft.Extensions.Logging;
+ 
+ namespace Microsoft.AspNetCore.Server.Kestrel.Internal.Http
+ {
++    using System.IO.Pipelines;
++
+     public class Connection : ConnectionContext, IConnectionControl
+     {
+         // Base32 encoding - in ascii sort order for easy text based sorting",nit: move `using` outside of namespace,.cs,1,1,1
+"@@ -358,6 +358,11 @@ namespace NLog.Targets.Wrappers
+         /// </summary>
+         /// <returns>Returns true when scheduled a timer-worker-thread</returns>
+         protected virtual bool StartInstantWriterTimer()
++        {
++            return StartTimerUnlessWriterActive(true);
++        }
++
++        private bool StartTimerUnlessWriterActive(bool instant)
+         {
+             bool lockTaken = false;
+             try",shouldn't we return `true` here?,.cs,1,0,1
+"@@ -13,7 +13,7 @@ namespace MvvmCross.Platforms.Android.Views
+         Intent GetIntentFor(MvxViewModelRequest request);
+ 
+         // Important: if calling GetIntentWithKeyFor then you must later call RemoveSubViewModelWithKey on the returned key
+-        Tuple<Intent, int> GetIntentWithKeyFor(IMvxViewModel existingViewModelToUse);
++        (Intent Intent, int Key) GetIntentWithKeyFor(IMvxViewModel existingViewModelToUse, MvxViewModelRequest request);
+ 
+         void RemoveSubViewModelWithKey(int key);
+     }",Please lowercase return names.,.cs,1,1,1
+"@@ -0,0 +1,10 @@
++﻿namespace Microsoft.Azure.Cosmos.CosmosElements
++{
++    internal abstract class CosmosNull : CosmosElement
++    {
++        protected CosmosNull()
++            : base(CosmosElementType.Null)
++        {
++        }
++    }
++}",does this class (also Boolean) need to be abstract?,.cs,1,1,1
+"@@ -52,6 +52,8 @@ namespace Nethermind.Runner.Ethereum.Steps
+ 
+                 JsonRpcService jsonRpcService = new(_api.RpcModuleProvider, _api.LogManager);
+ 
++                _api.EthereumJsonSerializer.RegisterConverters(jsonRpcService.Converters);
++                
+                 JsonRpcProcessor jsonRpcProcessor = new(
+                     jsonRpcService,
+                     _api.EthereumJsonSerializer,",This change will register JSON RPC converters for the API serializer that is used in multiple places. Is it OK ? HTTP JSON RPC uses own instance of the serializer. Maybe we should do the same for the sockets or share the same instance with the HTTP module ?,.cs,1,1,1
+"@@ -188,12 +188,13 @@ namespace Microsoft.CodeAnalysis.Sarif.Converters
+         {
+             var context = TestHelper.CreateProjectContext();
+ 
+-            context.RefineMessage(""CA0000"", ""VeryUsefulCheck"", ""1"", ""MyCategory"", ""Breaking"");
++            context.RefineMessage(""CA0000"", ""VeryUsefulCheck"", ""1"", ""MyCategory"", ""Breaking"", ""ExcludedInSource"");
+             Assert.AreEqual(""CA0000"", context.CheckId);
+             Assert.AreEqual(""1"", context.MessageId);
+             Assert.AreEqual(""MyCategory"", context.Category);
+             Assert.AreEqual(""VeryUsefulCheck"", context.Typename);
+             Assert.AreEqual(""Breaking"", context.FixCategory);
++            Assert.AreEqual(""ExcludedInSource"", context.Status);
+         }
+ 
+         [TestMethod]","I thought we had names `""Unknown""`, `""SuppressedInSource""`, and `""SuppressedInBaseLine""`.",.cs,1,0,1
+"@@ -1,12 +1,19 @@
+ // Copyright (c) .NET Foundation. All rights reserved.
+ // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+ 
++using System;
+ using Microsoft.AspNetCore.Server.Kestrel.Filter;
+ 
+ namespace Microsoft.AspNetCore.Server.Kestrel
+ {
+     public interface IKestrelServerInformation
+     {
++        TimeSpan ExecutionTimeout { get; set; }
++
++        TimeSpan HeadersCompleteTimeout { get; set; }
++
++        TimeSpan KeepAliveTimeout { get; set; }
++
+         int ThreadCount { get; set; }
+ 
+         bool NoDelay { get; set; }","KeepAlive and HeadersComplete are reasonable, but I don't think we need or want ExecutionTimeout at the server level. A) The same functionality can be provided in app/middleware code. B) The timeout is un-enforceable. You can't force an app to abandon a request, you can only close the socket and trip the token. The RequestAborted CancellationToken is at best a hint. There are no thread aborts like v4. C) There are known scenarios this breaks with long running requests. It's one more setting on the server to hunt down and fiddle with when that happens.",.cs,1,1,0
+"@@ -0,0 +1,14 @@
++// <copyright file=""OSPlatforms.cs"" company=""Datadog"">
++// Unless explicitly stated otherwise all files in this repository are licensed under the Apache 2 License.
++// This product includes software developed at Datadog (https://www.datadoghq.com/). Copyright 2017 Datadog, Inc.
++// </copyright>
++
++namespace Datadog.Trace
++{
++    internal static class OSPlatforms
++    {
++        public const string Windows = ""Windows"";
++        public const string Linux = ""Linux"";
++        public const string MacOS = ""MacOS"";
++    }
++}","Really small nit, I suggest removing the ""s"" so it's singular: `OSPlatform`",.cs,1,1,1
+"@@ -0,0 +1,17 @@
++// Copyright (c) Microsoft.  All Rights Reserved.
++// Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
++
++using System.CodeDom.Compiler;
++
++namespace Microsoft.CodeAnalysis.Sarif
++{
++    /// <summary>
++    /// Indicates whether a result has been suppressed in source (or if that information is unknown).
++    /// </summary>
++    [GeneratedCode(""Microsoft.Json.Schema.ToDotNet"", ""0.16.0.0"")]
++    public enum IsSuppressedInSource
++    {
++        Unknown,
++        True,False
++    }
++}","I'm intrigued that the code gen put those on the same line. Not crazy about the names. How about: type = SourceSuppressionState, with values Unknown, Suppressed, NotSuppressed?",.cs,1,1,1
+"@@ -3,8 +3,9 @@
+ // See the LICENSE file in the project root for more information.
+ 
+ using System;
+-using System.Collections.Generic;
+ using System.IO;
++using System.Text;
++using System.Threading;
+ using Microsoft.Build.Framework;
+ using Microsoft.Build.Utilities;
+ using Newtonsoft.Json;",You can probably revert this whole file. None of the changes here look substantive.,.cs,1,1,1
+"@@ -147,8 +147,8 @@ namespace Nethermind.Blockchain.Synchronization
+             receipt.TxHash = transaction.Hash;
+             receipt.Index = transactionIndex;
+             receipt.Sender = transaction.SenderAddress;
+-            receipt.Recipient = transaction.IsContractCreation ? null : transaction.To;
+-            receipt.ContractAddress = transaction.IsContractCreation ? transaction.To : null;
++            receipt.Recipient = transaction.GetRecipient();
++            receipt.ContractAddress = transaction.GetCreatedContract();
+             receipt.GasUsed = receipt.GasUsedTotal - gasUsedBefore;
+             if (receipt.StatusCode != StatusCode.Success)
+             {",this is actually all incorrect here for created contract - created contract is not the To field,.cs,1,1,1
+"@@ -78,8 +78,9 @@ namespace NLog.Internal
+         /// </summary>
+         /// <param name=""exception"">The exception to check.</param>
+         /// <param name=""loggerContext"">Target context of the exception.</param>
++        /// <param name=""logFactory"">For checking <see cref=""LogFactory.ThrowExceptions""/> and <see cref=""LogFactory.ThrowConfigExceptions""/>. Falls back to <see cref=""LogManager""/> </param>
+         /// <returns><c>true</c>if the <paramref name=""exception""/> must be rethrown, <c>false</c> otherwise.</returns>
+-        public static bool MustBeRethrown(this Exception exception, IInternalLoggerContext loggerContext = null)
++        public static bool MustBeRethrown(this Exception exception, IInternalLoggerContext loggerContext = null, LogFactory logFactory = null)
+         {
+             if (exception.MustBeRethrownImmediately())
+             {","Maybe add LoggingConfiguration as property to `IInternalLoggerContext`, and then extract the LogFactory from that? When InternalLogger-logging is improved with Nlog 5, then it will all work automagically.",.cs,1,1,1
+"@@ -38,7 +38,16 @@ namespace OpenTelemetry.Trace
+                 throw new ArgumentNullException(nameof(builder));
+             }
+ 
+-            var exporterOptions = new JaegerExporterOptions();
++            JaegerExporterOptions exporterOptions;
++            if (builder is IResolvingTracerProviderBuilder resolvingTracerProviderBuilder)
++            {
++                exporterOptions = resolvingTracerProviderBuilder.ResolveOptions<JaegerExporterOptions>();
++            }
++            else
++            {
++                exporterOptions = new JaegerExporterOptions();
++            }
++
+             configure?.Invoke(exporterOptions);
+             var jaegerExporter = new JaegerExporter(exporterOptions);
+ ",Here is an example of how something like JaegerExporter can use IResolvingTracerProviderBuilder to inject options.,.cs,1,1,1
+"@@ -1,15 +1,16 @@
+ ﻿// Copyright (c) Microsoft Open Technologies, Inc. All rights reserved.
+ // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
+ 
+-using System;
+-using System.Collections.Generic;
+-using System.Threading.Tasks;
+ using Microsoft.AspNet.Builder;
+ using Microsoft.AspNet.FeatureModel;
+ using Microsoft.AspNet.Hosting.Server;
+ using Microsoft.AspNet.Server.Kestrel;
+ using Microsoft.Framework.ConfigurationModel;
++using Microsoft.Framework.Logging;
+ using Microsoft.Framework.Runtime;
++using System;
++using System.Collections.Generic;
++using System.Threading.Tasks;
+ 
+ namespace Kestrel
+ {",This is the wrong sort order for usings.,.cs,1,0,1
+"@@ -18,6 +18,7 @@
+  */
+ 
+ using System;
++using System.Globalization;
+ using System.IO;
+ using System.Linq;
+ using System.Windows.Forms;",This is causing a code inspection failure.,.cs,1,1,1
+"@@ -60,7 +60,10 @@ namespace MvvmCross.Forms.Platform.Ios.Core
+                     Xamarin.Forms.Forms.Init();
+                 if (_formsApplication == null)
+                 {
+-                    _formsApplication = _formsApplication ?? CreateFormsApplication();
++                    _formsApplication = CreateFormsApplication();
++                }
++                if (Application.Current != _formsApplication) {
++                    Application.Current = _formsApplication;
+                 }
+                 return _formsApplication;
+             }",`{` should be placed in a new line,.cs,1,1,1
+"@@ -331,6 +331,7 @@ namespace NLog.UnitTests.Layouts
+                         new CsvColumn(""date"", ""${longdate}""),
+                         new CsvColumn(""level"", ""${level}""),
+                         new CsvColumn(""message"", ""${message}""),
++                        new CsvColumn(""threadid"", ""${threadid}""),
+                     },
+                 QuoteChar = ""'"",
+                 Delimiter = CsvColumnDelimiterMode.Semicolon,",was a new unit test not a better option?,.cs,1,0,1
+"@@ -63,7 +63,7 @@ namespace System.Text.Json.Document.Tests
+             int arrayLength = _element.GetArrayLength();
+             for (int j = 0; j < arrayLength; j++)
+             {
+-                JsonElement dummy = _element[j];
++                _ = _element[j];
+             }
+         }
+     }",Will this still work in 3.1 and 5.0? I don't remember what version of C# this is from.,.cs,1,1,1
+"@@ -66,7 +66,7 @@ namespace MvvmCross.Droid.Views
+             onGlobalLayout = (sender, args) =>
+             {
+                 view.ViewTreeObserver.GlobalLayout -= onGlobalLayout;
+-                ViewModel.Appeared();
++                ViewModel?.Appeared();
+             };
+ 
+             view.ViewTreeObserver.GlobalLayout += onGlobalLayout;",We might need to add those null checks on iOS and Windows as well.,.cs,1,1,1
+"@@ -176,15 +176,10 @@ namespace Nethermind.Synchronization.FastBlocks
+                 }
+                 else
+                 {
+-                    Keccak receiptsRoot = new ReceiptTrie(blockInfo.BlockNumber, _specProvider, receipts).RootHash;
+-                    if (receiptsRoot != header.ReceiptsRoot)
+-                    {
+-                        preparedReceipts = null;
+-                    }
+-                    else
+-                    {
+-                        preparedReceipts = receipts;
+-                    }
++                    IReleaseSpec releaseSpec = _specProvider.GetSpec(blockInfo.BlockNumber);
++                    preparedReceipts = releaseSpec.ValidateReceipts && new ReceiptTrie(releaseSpec, receipts).RootHash != header.ReceiptsRoot 
++                        ? null 
++                        : receipts;
+                 }
+             }
+ ",we cannot simply not validate receipts - very dangerous - can we discuss more,.cs,1,0,0
+"@@ -31,7 +31,7 @@
+ // THE POSSIBILITY OF SUCH DAMAGE.
+ // 
+ 
+-#if !SILVERLIGHT && !NETSTANDARD || NETSTANDARD1_3PLUS
++#if !SILVERLIGHT && !NETSTANDARD
+ 
+ namespace NLog.LayoutRenderers
+ {",Isn't this a quick fix? Disabling the code?,.cs,1,0,1
+"@@ -19,7 +19,13 @@ namespace Datadog.Trace.ClrProfiler.Managed.Loader
+         private static string ResolveManagedProfilerDirectory()
+         {
+             string tracerFrameworkDirectory = ""netstandard2.0"";
+-            var tracerHomeDirectory = Environment.GetEnvironmentVariable(""DD_DOTNET_TRACER_HOME"") ?? string.Empty;
++
++            var tracerHomeDirectory = Environment.GetEnvironmentVariable(""DD_DOTNET_TRACER_HOME"");
++            if (string.IsNullOrWhiteSpace(tracerHomeDirectory))
++            {
++                tracerHomeDirectory = Path.GetDirectoryName(Environment.GetEnvironmentVariable(""DD_INTEGRATIONS"")) ?? string.Empty;
++            }
++
+             return Path.Combine(tracerHomeDirectory, tracerFrameworkDirectory);
+         }
+ ",.NET Core: Fallback to `DD_INTEGRATIONS` if `DD_DOTNET_TRACER_HOME` was not set.,.cs,1,1,1
+"@@ -34,8 +34,8 @@ namespace Datadog.Trace.DiagnosticListeners
+         private static readonly PropertyFetcher HttpRequestInStopHttpContextFetcher = new PropertyFetcher(""HttpContext"");
+         private static readonly PropertyFetcher UnhandledExceptionHttpContextFetcher = new PropertyFetcher(""HttpContext"");
+         private static readonly PropertyFetcher UnhandledExceptionExceptionFetcher = new PropertyFetcher(""Exception"");
+-        private static readonly PropertyFetcher BeforeActionHttpContextFetcher = new PropertyFetcher(""HttpContext"");
+-        private static readonly PropertyFetcher BeforeActionActionDescriptorFetcher = new PropertyFetcher(""ActionDescriptor"");
++        private static readonly PropertyFetcher BeforeActionHttpContextFetcher = new PropertyFetcher(""httpContext"");
++        private static readonly PropertyFetcher BeforeActionActionDescriptorFetcher = new PropertyFetcher(""actionDescriptor"");
+ 
+         private readonly IDatadogTracer _tracer;
+         private readonly AspNetCoreDiagnosticOptions _options;","This seems unrelated, what's the deal here? Was this a bug?",.cs,1,1,1
+"@@ -33,7 +33,7 @@ namespace Microsoft.AspNet.Server.Kestrel
+                 }
+                 if (Libuv.IsWindows)
+                 {
+-                    var architecture = IntPtr.Size == 4
++                    var architecture = Environment.Is64BitProcess
+                         ? ""x86""
+                         : ""amd64"";
+ ","This is wrong, it either needs to be `!Environment.Is64BitProcess` or switch x86 and amd64.",.cs,1,1,1
+"@@ -87,8 +87,12 @@ namespace Nethermind.Runner.Ethereum.Steps
+                         logger.Error(""Error during jsonRpc runner start"", x.Exception);
+                 }, cancellationToken);
+ 
++                JsonRpcIpcRunner jsonIpcRunner = new(jsonRpcProcessor, _api.ConfigProvider, _api.LogManager);
++                jsonIpcRunner.Start(cancellationToken);
++
+ #pragma warning disable 4014
+                 _api.DisposeStack.Push(new Reactive.AnonymousDisposable(() => jsonRpcRunner.StopAsync())); // do not await
++                _api.DisposeStack.Push(new Reactive.AnonymousDisposable(() => jsonIpcRunner.Dispose())); // do not await
+ #pragma warning restore 4014
+             }
+             else",IDisposable can be pushed here normally,.cs,1,0,1
+"@@ -23,6 +23,9 @@ namespace MvvmCross.Platforms.Uap.Presenters
+     {
+         protected readonly IMvxWindowsFrame _rootFrame;
+ 
++        private MvxWindowsContentDialog mDialogView;
++
++
+         public MvxWindowsViewPresenter(IMvxWindowsFrame rootFrame)
+         {
+             _rootFrame = rootFrame;",Can we avoid by any chance holding a strong reference to the dialog view here?,.cs,1,1,1
+"@@ -17,6 +17,7 @@
+ using System.Diagnostics;
+ using Microsoft.Extensions.Logging;
+ using OpenTelemetry;
++using OpenTelemetry.Trace;
+ 
+ public class Program
+ {","Although this is technically correct, I wonder if we could make it simpler by not requiring this namespace?",.cs,1,1,1
+"@@ -59,7 +59,10 @@ namespace Nethermind.Evm
+             0, 0, 0, 0, 0, 0, 0, 0
+         };
+ 
++        private readonly byte[] _chainId;
++
+         private readonly IBlockhashProvider _blockhashProvider;
++        private readonly ISpecProvider _specProvider;
+         private readonly LruCache<Keccak, CodeInfo> _codeCache = new LruCache<Keccak, CodeInfo>(4 * 1024);
+         private readonly ILogger _logger;
+         private readonly IStateProvider _state;",remove readonly for performance reasons,.cs,1,1,1
+"@@ -24,6 +24,8 @@ namespace Nethermind.Consensus
+     {
+         private readonly UInt256 _constantDifficulty;
+ 
++        public static readonly IDifficultyCalculator Zero = new ConstantDifficultyCalculator(UInt256.Zero);
++
+         public static readonly IDifficultyCalculator One = new ConstantDifficultyCalculator(UInt256.One);
+ 
+         public ConstantDifficultyCalculator(UInt256 constantDifficulty)","rename to ConstantDifficulty instead of ConstantDifficultyCalculator -> or even -> Difficulty.One, Difficulty.Zero",.cs,1,1,1
+"@@ -13,7 +13,7 @@ namespace Datadog.Trace
+ 
+         private readonly DateTimeOffset _utcStart = DateTimeOffset.UtcNow;
+         private readonly long _timestamp = Stopwatch.GetTimestamp();
+-        private readonly List<Span> _spans = new List<Span>();
++        private List<Span> _spans = new List<Span>();
+ 
+         private int _openSpans;
+         private SamplingPriority? _samplingPriority;",Doesn't look like we needed to remove the `readonly`.,.cs,1,0,0
+"@@ -96,8 +96,8 @@ namespace Examples.Console
+                 catch (ArgumentOutOfRangeException e)
+                 {
+                     // Set status upon error
+-                    activity.AddTag(SpanAttributeConstants.StatusCodeKey, SpanHelper.GetCachedCanonicalCodeString(Status.Internal.CanonicalCode));
+-                    activity.AddTag(SpanAttributeConstants.StatusDescriptionKey, e.ToString());
++                    activity.SetTag(SpanAttributeConstants.StatusCodeKey, SpanHelper.GetCachedCanonicalCodeString(Status.Internal.CanonicalCode));
++                    activity.SetTag(SpanAttributeConstants.StatusDescriptionKey, e.ToString());
+                 }
+ 
+                 // Annotate our activity to capture metadata about our operation",Should we consider changing the return type of `SpanHelper.GetCachedCanonicalCodeString` to int?,.cs,1,0,1
+"@@ -0,0 +1,17 @@
++﻿// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++// See the LICENSE file in the project root for more information.
++
++using System;
++using System.Net;
++
++namespace Microsoft.DotNet.VersionTools.Automation.GitHubApi
++{
++    public partial class GitHubClient : IGitHubClient, IDisposable
++    {
++        static GitHubClient()
++        {
++            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
++        }
++    }
++}","@davidsh When targeting 4.5(.0) is this the right answer, or can/should it be assigned to 0?",.cs,0,1,1
+"@@ -594,6 +594,19 @@ namespace MvvmCross.Droid.Views
+             return false;
+         }
+ 
++        protected virtual bool CloseFragments()
++        {
++            try
++            {
++                CurrentFragmentManager.PopBackStackImmediate();
++            }
++            catch (System.Exception ex)
++            {
++                MvxTrace.Trace(""Cannot close any fragments"", ex);
++            }
++            return true;
++        }
++
+         protected virtual bool CloseFragment(IMvxViewModel viewModel, MvxFragmentPresentationAttribute attribute)
+         {
+             // try to close nested fragment first",Same here about running the code without try/catch,.cs,0,1,1
+"@@ -0,0 +1,14 @@
++// Copyright (c) .NET Foundation. All rights reserved.
++// Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
++
++using System;
++
++namespace Microsoft.AspNetCore.Protocols
++{
++    [Flags]
++    public enum TransferFormat
++    {
++        Binary = 0x01,
++        Text = 0x02
++    }
++}","Binary literal? :). I don't really care either way, mostly just trolling.",.cs,1,0,1
+"@@ -150,6 +150,7 @@ namespace Datadog.Trace
+                 span.SetTag(Tags.AzureAppServicesInstanceName, AzureAppServices.Metadata.InstanceName);
+                 span.SetTag(Tags.AzureAppServicesOperatingSystem, AzureAppServices.Metadata.OperatingSystem);
+                 span.SetTag(Tags.AzureAppServicesRuntime, AzureAppServices.Metadata.Runtime);
++                span.SetTag(Tags.AzureAppServicesExtensionVersion, AzureAppServices.Metadata.SiteExtensionVersion);
+             }
+ 
+             // set the origin tag to the root span of each trace/subtrace","Can this be `null` (e.g. if it's an older version of the extension installed)? If so, is there any value in recording that as a key without a value? This is a more general question of course, for my own understanding  ",.cs,1,1,1
+"@@ -26,6 +26,7 @@ namespace Datadog.Trace.ClrProfiler.IntegrationTests
+ #if DEFAULT_SAMPLES
+                 new object[] { string.Empty },
+ #else
++#if NETFRAMEWORK
+                 new object[] { ""2.0.0"" },
+                 new object[] { ""2.0.1"" },
+                 new object[] { ""2.0.2"" },","The changes to `MinVersionNetCore` take effect here, where we do not run the XUnit test cases for package versions that are lower than the specified `MinVersionNetCore`",.cs,1,1,1
+"@@ -52,10 +52,15 @@ namespace MvvmCross.Forms.Platform.Uap.Core
+         {
+             get
+             {
++                if (!Xamarin.Forms.Forms.IsInitialized)
++                    Xamarin.Forms.Forms.Init(ActivationArguments, GetViewAssemblies());
++
+                 if (_formsApplication == null)
+                 {
+-                    Xamarin.Forms.Forms.Init(ActivationArguments, GetViewAssemblies());
+-                    _formsApplication = _formsApplication ?? CreateFormsApplication();
++                    _formsApplication = CreateFormsApplication();
++                }
++                if(Application.Current != _formsApplication) {
++                    Application.Current = _formsApplication;
+                 }
+                 return _formsApplication;
+             }",`{` should be placed in a new line,.cs,1,1,1
+"@@ -2119,6 +2119,10 @@ namespace Nethermind.Evm
+                         {
+                             _state.UpdateStorageRoot(contractAddress, Keccak.EmptyTreeHash);
+                         }
++                        else if (_state.IsDeadAccount(contractAddress))
++                        {
++                            _storage.RecreateStorage(contractAddress);
++                        }
+ 
+                         _state.SubtractFromBalance(env.ExecutingAccount, value, spec);
+                         ExecutionEnvironment callEnv = new ExecutionEnvironment();",Are we sure this won't create consensus issues on different transactions and blocks?,.cs,1,1,1
+"@@ -85,6 +85,6 @@ namespace NLog.Targets
+         /// Gets or sets the type of the property.
+         /// </summary>
+         [DefaultValue(typeof(string))]
+-        public Type PropertyType { get; set; } = typeof(string);
++        public Type ParameterType { get; set; } = typeof(string);
+     }
+ }","I think propertyType is better? It's a target with properties, and not parameters?",.cs,1,1,1
+"@@ -29,7 +29,7 @@ namespace Nethermind.Network.Benchmarks
+         [GlobalSetup]
+         public void Setup()
+         {
+-            _node = new Node(new PublicKey(""0x000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f""), ""127.0.0.1"", 1234);
++            _node = new Node(new PublicKey(""0x000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f""), ""127.0.0.1"", 1234, false);
+         }
+         
+         [Benchmark]",a lot of default 'false' for isStatic cluttering the PR,.cs,0,1,1
+"@@ -62,6 +62,11 @@ func (t TraceID) MarshalJSON() ([]byte, error) {
+ 	return json.Marshal(hex.EncodeToString(t[:]))
+ }
+ 
++// Stringer Implementation of String() returns the string form of a TraceID
++func (t TraceID) String() string {
++	return string(t[:])
++}
++
+ // SpanID is a unique identify of a span in a trace.
+ type SpanID [8]byte
+ ",please use hex.EncodeToString() here as well.,go,1,1,1
+"@@ -33,6 +33,7 @@ type Header struct {
+ 	Type         protocol.PacketType
+ 	IsLongHeader bool
+ 	KeyPhase     int
++	PayloadLen   protocol.ByteCount
+ 
+ 	// only needed for logging
+ 	isPublicHeader bool",Maybe it's worth splitting the long header and short header? Or have a substruct with only the long header / short header specific fields?,go,1,1,1
+"@@ -1584,14 +1584,13 @@ func (s *matchingEngineSuite) TestTaskExpiryAndCompletion() {
+         s.matchingEngine.config.MaxTaskDeleteBatchSize = dynamicconfig.GetIntPropertyFilteredByTaskQueueInfo(2)
+         // set idle timer check to a really small value to assert that we don't accidentally drop tasks while blocking
+         // on enqueuing a task to task buffer
+-        s.matchingEngine.config.IdleTaskqueueCheckInterval = dynamicconfig.GetDurationPropertyFnFilteredByTaskQueueInfo(time.Microsecond)
++        s.matchingEngine.config.IdleTaskqueueCheckInterval = dynamicconfig.GetDurationPropertyFnFilteredByTaskQueueInfo(time.Millisecond)
+ 
+         testCases := []struct {
+-                batchSize          int
+                 maxTimeBtwnDeletes time.Duration
+         }{
+-                {2, time.Minute},       // test taskGC deleting due to size threshold
+-                {100, time.Nanosecond}, // test taskGC deleting due to time condition
++                {time.Minute},     // test taskGC deleting due to size threshold
++                {time.Nanosecond}, // test taskGC deleting due to time condition
+         }
+ 
+         for _, tc := range testCases {",S -> ms? just check this is intentional?,go,1,1,0
+"@@ -198,6 +198,7 @@ func (node *Node) cancelBlockSubscription() {
+ // Stop initiates the shutdown of the node.
+ func (node *Node) Stop() {
+ 	node.cancelBlockSubscription()
++	node.ChainMgr.BestBlockPubSub.Shutdown()
+ 
+ 	if err := node.Host.Close(); err != nil {
+ 		fmt.Printf(""error closing host: %s\n"", err)","Seems like the chainmgr should shut itself down, rather than the node reaching inside of it. So maybe just have a shutdown or similar on the chainmgr?",go,1,1,1
+"@@ -92,13 +92,13 @@ type Image struct {
+ // ImageWithHealthcheck represents a container image with health check.
+ type ImageWithHealthcheck struct {
+ 	Image       `yaml:"",inline""`
+-	HealthCheck *ContainerHealthCheck `yaml:""healthcheck""`
++	HealthCheck *ContainerHealthCheck `yaml:""healthcheck""` // This is used as a pointer so that we can use `{{- if .ContainerHealthCheck}}` for manifest rendering.
+ }
+ 
+ // ImageWithPortAndHealthcheck represents a container image with an exposed port and health check.
+ type ImageWithPortAndHealthcheck struct {
+ 	ImageWithPort `yaml:"",inline""`
+-	HealthCheck   *ContainerHealthCheck `yaml:""healthcheck""`
++	HealthCheck   *ContainerHealthCheck `yaml:""healthcheck""` // This is used as a pointer so that we can use `{{- if .ContainerHealthCheck}}` for manifest rendering.
+ }
+ 
+ // ImageWithPort represents a container image with an exposed port.",Can we do `{{- if not .ImageConfig.HealthCheck.IsEmpty}}` instead?,go,1,1,1
+"@@ -233,7 +233,15 @@ func (oc *OCSPMonitor) run() {
+         quitCh := s.quitCh
+         s.mu.Unlock()
+ 
+-        defer s.grWG.Done()
++        var doShutdown bool
++        defer func() {
++                // Need to decrement before shuting down, otherwise shutdown
++                // would be stuck waiting on grWG to go down to 0.
++                s.grWG.Done()
++                if doShutdown {
++                        s.Shutdown()
++                }
++        }()
+ 
+         oc.mu.Lock()
+         shutdownOnRevoke := oc.shutdownOnRevoke","@wallyqs @variadico Could you please review this part: what was happening is that when run() decides to call s.Shutdown(), this go routine would be blocked because Shutdown() would be waiting on grWG.Wait() that would never be done because this go routine itself had not yet called s.grWG.Done(). Can you think of if this would have been user-visible? And if so, what would be the symptoms? If not user-visible, this is just a fix that will help make sure that there are not left-over go routines when a test completes.",go,0,1,0
+"@@ -35,6 +35,8 @@ var cipherMap = map[string]uint16{
+ 
+ func defaultCipherSuites() []uint16 {
+ 	return []uint16{
++		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
++		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+ 		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+ 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+ 		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,",I think we should put ECDSA first..,go,1,0,1
+"@@ -24,10 +24,12 @@ type Cleaner struct {
+ 
+ // SessionStorage keeps sessions and allows removing them by proposal id
+ type SessionStorage interface {
+-	RemoveForService(serviceId string)
++	RemoveForService(serviceID string)
+ }
+ 
+ // Cleanup removes sessions of stopped service
+-func (cleaner *Cleaner) Cleanup(instance *Instance) {
+-	cleaner.SessionStorage.RemoveForService(string(instance.id))
++func (cleaner *Cleaner) Cleanup(event EventPayload) {
++	if event.Status == string(NotRunning) {
++		cleaner.SessionStorage.RemoveForService(event.ID)
++	}
+ }","Its probably not a `Cleanup` then, since imho its should be called only once and we don't care about event's state.",go,1,1,1
+"@@ -503,12 +503,14 @@ type TaskConfig struct {
+ }
+ 
+ // TaskPlatform returns the platform for the service.
+-func (t *TaskConfig) TaskPlatform() (*string, error) {
+-	if t.Platform.PlatformString == nil {
+-		return nil, nil
++func (t *TaskConfig) TaskPlatform() *string {
++	if t.Platform.IsEmpty() {
++		return nil
++	}
++	if t.IsWindows() {
++		return aws.String(platformString(OSWindows, t.Platform.Arch()))
+ 	}
+-	val := string(*t.Platform.PlatformString)
+-	return &val, nil
++	return aws.String(platformString(t.Platform.OS(), t.Platform.Arch()))
+ }
+ 
+ // IsWindows returns whether or not the service is building with a Windows OS.",what if `Arch` is empty? should we instead just return `OSWindows`?,go,1,1,1
+"@@ -325,7 +325,7 @@ func (task *Task) initializeVolumes(cfg *config.Config, dockerClient dockerapi.D
+ // able to handle such an occurrence appropriately (e.g. behave idempotently).
+ func (task *Task) PostUnmarshalTask(cfg *config.Config,
+ 	credentialsManager credentials.Manager, resourceFields *taskresource.ResourceFields,
+-	dockerClient dockerapi.DockerClient, ctx context.Context) error {
++	dockerClient dockerapi.DockerClient, ctx context.Context, options ...Option) error {
+ 	// TODO, add rudimentary plugin support and call any plugins that want to
+ 	// hook into this
+ 	task.adjustForPlatform(cfg)","I like the idea, but call to `PostUnmarshalTask` might become cumbersome with too many options",go,1,1,1
+"@@ -53,7 +53,7 @@ func (m NoopMetricsClient) RecordDistribution(scope int, timer int, d int) {}
+ func (m NoopMetricsClient) UpdateGauge(scope int, gauge int, value float64) {}
+ 
+ func (m NoopMetricsClient) Scope(scope int, tags ...Tag) Scope {
+-	return &metricsScope{
++	return &tallyScope{
+ 		scope:     tally.NoopScope,
+ 		rootScope: tally.NoopScope,
+ 	}",It would be great to remove `tally` dependency here. There is `NoopScope` already but it depends on `tally` too. So you will need to create real no-op implementation.,go,1,1,1
+"@@ -0,0 +1,5 @@
++package xds
++
++type RTDSConfig struct {
++        layerName string
++}",I'm not sure if there's much value in having this be in its own file,go,1,1,1
+"@@ -31,7 +31,7 @@ type restBackend struct {
+ }
+ 
+ // Open opens the REST backend with the given config.
+-func Open(cfg Config, rt http.RoundTripper) (restic.Backend, error) {
++func Open(cfg Config, rt http.RoundTripper) (*restBackend, error) {
+ 	client := &http.Client{Transport: rt}
+ 
+ 	sem, err := backend.NewSemaphore(cfg.Connections)","exported func Open returns unexported type *rest.restBackend, which can be annoying to use",go,1,1,1
+"@@ -36,7 +36,7 @@ type Cgroup struct {
+ type Resources struct {
+ 	// If this is true allow access to any kind of device within the container.  If false, allow access only to devices explicitly listed in the allowed_devices list.
+ 	// Deprecated
+-	AllowAllDevices bool `json:""allow_all_devices,omitempty""`
++	AllowAllDevices *bool `json:""allow_all_devices,omitempty""`
+ 	// Deprecated
+ 	AllowedDevices []*Device `json:""allowed_devices,omitempty""`
+ 	// Deprecated",Why did you drop the `omitempty` tag? That is meant to qualify if a field is optional or not.,go,1,1,1
+"@@ -563,6 +563,7 @@ func makeStatefulSetSpec(p monitoringv1.Prometheus, c *Config, ruleConfigMapName
+ 		},
+ 	}
+ 
++	promVolumeMounts = append(promVolumeMounts, p.Spec.VolumeMounts...)
+ 	for _, name := range ruleConfigMapNames {
+ 		promVolumeMounts = append(promVolumeMounts, v1.VolumeMount{
+ 			Name:      name,",I am guessing this won't interfere with the merge patch we do?,go,0,1,1
+"@@ -18,7 +18,7 @@ import (
+ 	""net/http""
+ 	""time""
+ 
+-	""istio.io/fortio/log""
++	""fortio.org/fortio/log""
+ 	""istio.io/tools/isotope/convert/pkg/graph/svc""
+ 	""istio.io/tools/isotope/convert/pkg/graph/svctype""
+ 	""istio.io/tools/isotope/service/pkg/srv/prometheus""",File is not `goimports`-ed (from `goimports`),go,0,1,1
+"@@ -262,7 +262,7 @@ func acceptedEncodings(r *http.Request) []string {
+                 return []string{}
+         }
+ 
+-        var prefs []encodingPreference
++        prefs := []encodingPreference{}
+ 
+         for _, accepted := range strings.Split(acceptEncHeader, "","") {
+                 parts := strings.Split(accepted, "";"")","_sniff_ Is this the smell of... bikeshedding? :laughing: Or is this an actual lint warning? If so, why? (Personally I prefer the `var` syntax to explicitly make the definition a zero initialization)",go,1,1,1
+"@@ -67,14 +67,14 @@ TLS certificates from various issuing sources.
+ It will ensure certificates are valid and up to date periodically, and attempt
+ to renew certificates at an appropriate time before expiry.`,
+ 
+-		// TODO: Refactor this function from this package
+-		Run: func(cmd *cobra.Command, args []string) {
++		RunE: func(cmd *cobra.Command, args []string) error {
+ 			if err := o.Validate(args); err != nil {
+-				logf.Log.Error(err, ""error validating options"")
++				return fmt.Errorf(""error validating options: %s"", err)
+ 			}
+ 
+ 			logf.Log.Info(""starting controller"", ""version"", util.AppVersion, ""git-commit"", util.AppGitCommit)
+ 			o.RunCertManagerController(stopCh)
++			return nil
+ 		},
+ 	}
+ ","How does RunE handle displaying errors to users? Would we be better to use `Run` as before so that we can control the output format? Don't think it's a big deal, but I'm just uncertain how RunE actually works  ",go,1,1,1
+"@@ -17,3 +17,5 @@ var (
+         GenerateCommonBinPrefixes = generateCommonBinPrefixes
+         PeerPingPollTime          = &peerPingPollTime
+ )
++
++type PeerFilterFunc = peerFilterFunc",is this used anywhere?,go,1,0,1
+"@@ -649,6 +649,8 @@ func (k *KeybaseServiceBase) GetTLFCryptKeys(ctx context.Context,
+ 		return keybase1.GetTLFCryptKeysRes{}, err
+ 	}
+ 
++	ctx = context.WithValue(ctx, CtxNoAddToFavoriteKey{}, true)
++
+ 	tlfHandle, err := k.getHandleFromFolderName(ctx, query.TlfName, false)
+ 	if err != nil {
+ 		return res, err","`true` seems weird, since setting it to `false` doesn't do the opposite. Maybe just set it to `struct{}{}`?",go,1,1,1
+"@@ -4,6 +4,7 @@ import (
+ 	""github.com/rancher/k3s/pkg/version""
+ 	""github.com/rancher/spur/cli""
+ 	""github.com/rancher/spur/cli/altsrc""
++	""time""
+ )
+ 
+ const (",Can you move this to where the stdlib imports are?,go,1,1,1
+"@@ -28,12 +28,12 @@ import (
+ // marshalling. See the following issue for details:
+ // https://github.com/prometheus/alertmanager/issues/1985
+ type alertmanagerConfig struct {
+-	Global            *globalConfig      `yaml:""global,omitempty"" json:""global,omitempty""`
+-	Route             *route             `yaml:""route,omitempty"" json:""route,omitempty""`
+-	InhibitRules      []*inhibitRule     `yaml:""inhibit_rules,omitempty"" json:""inhibit_rules,omitempty""`
+-	Receivers         []*receiver        `yaml:""receivers,omitempty"" json:""receivers,omitempty""`
+-	MuteTimeIntervals []muteTimeInterval `yaml:""mute_time_intervals,omitempty"" json:""mute_time_intervals,omitempty""`
+-	Templates         []string           `yaml:""templates"" json:""templates""`
++	Global            *globalConfig       `yaml:""global,omitempty"" json:""global,omitempty""`
++	Route             *route              `yaml:""route,omitempty"" json:""route,omitempty""`
++	InhibitRules      []*inhibitRule      `yaml:""inhibit_rules,omitempty"" json:""inhibit_rules,omitempty""`
++	Receivers         []*receiver         `yaml:""receivers,omitempty"" json:""receivers,omitempty""`
++	MuteTimeIntervals []*muteTimeInterval `yaml:""mute_time_intervals,omitempty"" json:""mute_time_intervals,omitempty""`
++	Templates         []string            `yaml:""templates"" json:""templates""`
+ }
+ 
+ type globalConfig struct {",Why changing to a slice of pointers?,go,1,0,1
+"@@ -452,11 +452,12 @@ func (c *Controller) addNodeRoute(nodeName string, node *v1.Node) error {
+ 	}
+ 	peerGatewayIP := ip.NextIP(peerPodCIDRAddr)
+ 
++	ipsecTunOFPort := int32(0)
+ 	if c.networkConfig.EnableIPSecTunnel {
+ 		// Create a separate tunnel port for the Node, as OVS IPSec monitor needs to
+ 		// read PSK and remote IP from the Node's tunnel interface to create IPSec
+ 		// security policies.
+-		if err = c.createIPSecTunnelPort(nodeName, peerNodeIP); err != nil {
++		if ipsecTunOFPort, err = c.createIPSecTunnelPort(nodeName, peerNodeIP); err != nil {
+ 			return err
+ 		}
+ 	}",you use an `int32` here but it seems that the rest of the code uses `uint32` pretty consistently (at least the OF client code does)?,go,1,1,1
+"@@ -49,10 +49,11 @@ const (
+ 	rootURL           = ""https://www.jottacloud.com/jfs/""
+ 	apiURL            = ""https://api.jottacloud.com/""
+ 	baseURL           = ""https://www.jottacloud.com/""
+-	tokenURL          = ""https://id.jottacloud.com/auth/realms/jottacloud/protocol/openid-connect/token""
++	defaultTokenURL   = ""https://id.jottacloud.com/auth/realms/jottacloud/protocol/openid-connect/token""
+ 	cachePrefix       = ""rclone-jcmd5-""
+ 	configDevice      = ""device""
+ 	configMountpoint  = ""mountpoint""
++	configTokenURL    = ""tokenURL""
+ 	configVersion     = 1
+ )
+ ",`configAuthURL` is unused (from `deadcode`),go,1,1,1
+"@@ -894,12 +894,17 @@ var (
+         RollupGasPriceOracleAddressFlag = cli.StringFlag{
+                 Name:   ""rollup.gaspriceoracleaddress"",
+                 Usage:  ""Address of the rollup gas price oracle"",
+-                Value:  ""0x"",
++                Value:  ""0x0000000000000000000000000000000000000000"",
+                 EnvVar: ""ROLLUP_GAS_PRICE_ORACLE_ADDRESS"",
+         }
+         RollupEnableL2GasPollingFlag = cli.BoolFlag{
+                 Name:   ""rollup.enablel2gaspolling"",
+-                Usage:  """",
++                Usage:  ""Poll for the L2 gas price from the L2 state"",
++                EnvVar: ""ROLLUP_ENABLE_L2_GAS_POLLING"",
++        }
++        RollupEnforceFeesFlag = cli.BoolFlag{
++                Name:   ""rollup.enforcefeesflag"",
++                Usage:  ""Disable transactions with 0 gas price"",
+                 EnvVar: ""ROLLUP_ENABLE_L2_GAS_POLLING"",
+         }
+ )",Fix this env var,go,1,0,0
+"@@ -389,6 +389,17 @@ func (c *client) parse(buf []byte) error {
+ 				if err := c.processPub(arg); err != nil {
+ 					return err
+ 				}
++				// Check if we have and account mappings or tees or filters.
++				// FIXME(dlc) - Probably better way to do this.
++				// Could add in cache but will be tricky since results based on pub subject are dynamic
++				// due to wildcard matching and weight sets.
++				if c.kind == CLIENT && c.in.flags.isSet(hasMappings) {
++					old := c.pa.subject
++					changed := c.selectMappedSubject()
++					if trace && changed {
++						c.traceInOp(""MAPPING"", []byte(fmt.Sprintf(""%s -> %s"", old, c.pa.subject)))
++					}
++				}
+ 				c.drop, c.as, c.state = 0, i+1, MSG_PAYLOAD
+ 				// If we don't have a saved buffer then jump ahead with
+ 				// the index. If this overruns what is left we fall out",other way would be for selectMappedSubject() to return a boolean to indicate that an actual mapping took place.,go,1,1,1
+"@@ -274,6 +274,12 @@ func (k *K8sClient) GetKCS() *kubernetes.Clientset {
+ 	return k.cs
+ }
+ 
++// GetUCS is a getter method for fetching upgrade clientset as
++// the upgrade clientset is not exported.
++func (k *K8sClient) GetUCS() *upgrade.Clientset {
++	return k.upgradecs
++}
++
+ // scOps is a utility function that provides a instance capable of
+ // executing various K8s StorageClass related operations
+ func (k *K8sClient) storageV1SCOps() typed_storage_v1.StorageClassInterface {",This package should not be used. This is old package.,go,1,1,1
+"@@ -683,6 +683,11 @@ func loadConfigFromDatastore(
+ 		Name:      ""node."" + hostname,
+ 		Namespace: """",
+ 	}, """")
++	n, err := client.Get(ctx, model.ResourceKey{
++		Kind:      apiv2.KindNode,
++		Name:      hostname,
++		Namespace: """",
++	}, """")
+ 	if _, ok := err.(errors2.ErrorResourceDoesNotExist); err != nil && !ok {
+ 		return
+ 	}",Should be checking for error here,go,1,1,1
+"@@ -61,8 +61,7 @@ runs on edge nodes and manages containerized applications.`,
+ 			gis.Start(beehiveContext.Done())
+ 			registerModules(config)
+ 			// start all modules
+-			core.StartModules()
+-			core.GracefulShutdown()
++			core.Run()
+ 		},
+ 	}
+ 	fs := cmd.Flags()",It might be clearer to split it into two calls? I'm not sure.,go,1,1,1
+"@@ -86,6 +86,7 @@ func (d *RDWebServiceDescriber) Describe() (HumanJSONStringer, error) {
+ 			Port:        service.Port,
+ 			CPU:         service.CPU,
+ 			Memory:      service.Memory,
++			Platform:    ""LINUX/X86_64"",
+ 		})
+ 
+ 		for _, v := range service.EnvironmentVariables {","An alternative to defaulting a platform string would be to not show the column at all if we do not have the information   For RD web service, I feel like user wouldn't be interested in the platform information anyway since they should have known that the only valid platform is ""linux/x86_64"" if they have tried to use any other platform for the service.",go,1,1,1
+"@@ -16,6 +16,9 @@
+ package config
+ 
+ import (
++	""fmt""
++	""github.com/aws/amazon-ecs-agent/agent/statemanager/dependencies""
++	""github.com/pkg/errors""
+ 	""os""
+ 	""strings""
+ 	""syscall""",nit: imports should be grouped. please run `go imports` and/or see other files to check import formatting.,go,1,1,1
+"@@ -15,6 +15,7 @@ type Datastore interface {
+ 	// can either force it, or just do hopeful type checks. Not all datastores
+ 	// implement every feature.
+ 	datastore.Batching
++	Close() error
+ }
+ 
+ // Repo is a representation of all persistent data in a filecoin node.","If we are adding the `Close` method, we should probably be also calling it when shutting down the node",go,1,1,1
+"@@ -138,12 +138,10 @@ func environmentCheck() error {
+ 	}
+ 
+ 	for _, process := range processes {
+-		// if kubelet is running, return error
+-		if process.Executable() == ""kubelet"" {
++		switch process.Executable() {
++		case ""kubelet"": // if kubelet is running, return error
+ 			return errors.New(""kubelet should not running on edge node when running edgecore"")
+-		}
+-		// if kube-proxy is running, return error
+-		if process.Executable() == ""kube-proxy"" {
++		case ""kube-proxy"": // if kube-proxy is running, return error
+ 			return errors.New(""kube-proxy should not running on edge node when running edgecore"")
+ 		}
+ 	}","There are only these two situations, I think there is no need to use `switch` to extend the judgment.",go,1,1,1
+"@@ -81,6 +81,10 @@ const (
+ 	// IsRelay when set causes the the daemon to provide libp2p relay
+ 	// services allowing other filecoin nodes behind NATs to talk directly.
+ 	IsRelay = ""is-relay""
++
++	// CatchupSyncTestMode places the daemon in a spcial catchup mode for testing
++	// TODO remove this when we stop using test daemon.
++	CatchupSyncTestMode = ""catchup-sync-test-mode""
+ )
+ 
+ // command object for the local cli","nit: special, also file an issue and add that issue number to the TODO",go,1,1,1
+"@@ -87,7 +87,8 @@ func (m *mounter) Unmount() (err error) {
+ 			_, err = exec.Command(
+ 				""/usr/sbin/diskutil"", ""unmountDisk"", ""force"", dir).Output()
+ 		case ""linux"":
+-			_, err = exec.Command(""fusermount"", ""-ul"", dir).Output()
++			// Lazy unmount; will unmount when KBFS is no longer in use
++			_, err = exec.Command(""fusermount"", ""-u"", ""-z"", dir).Output()
+ 		default:
+ 			err = errors.New(""Forced unmount is not supported on this platform yet"")
+ 		}","@taruti is this ok? my fusermount(1) shows the option is `-z`, which is pretty confusing since `umount` uses `-l`. hopefully it isn't os-dependent",go,0,1,1
+"@@ -358,7 +358,12 @@ func (r *replacer) getSubstitution(key string) string {
+ 		if r.responseRecorder == nil {
+ 			return r.emptyValue
+ 		}
+-		return roundDuration(time.Since(r.responseRecorder.start)).String()
++		elapsedDuration := time.Since(r.responseRecorder.start)
++
++		if elapsedDuration == 0 {
++			return ""0ms""
++		}
++		return roundDuration(elapsedDuration).String()
+ 	case ""{latency_ms}"":
+ 		if r.responseRecorder == nil {
+ 			return r.emptyValue","time.Since returns a duration value, which has accuracy to the nanosecond, I believe. So while 0ms is technically true in that case, the likelihood of getting an actual value of 0 is extremely low, I think. Is there a test that exhibits this behavior?",go,1,1,1
+"@@ -167,6 +167,10 @@ func (m *UnifiedManager) Destroy() error {
+ 	if m.Cgroups.Paths != nil {
+ 		return nil
+ 	}
++	dirPath, err := m.GetUnifiedPath()
++	if err != nil {
++		return err
++	}
+ 	m.mu.Lock()
+ 	defer m.mu.Unlock()
+ ","@kolyshkin I think we may not need `StopUnit` method. Because if the init process has been exited, the cgroup path will be deleted by systemd automatically. WDYT",go,0,1,1
+"@@ -18,6 +18,8 @@ import (
+ 	""encoding/json""
+ 	""testing""
+ 	""time""
++	""github.com/jmcvetta/randutil""
++	""reflect""
+ )
+ 
+ func TestSleepCommand_UnmarshalJSON(t *testing.T) {",File is not `gofmt`-ed with `-s` (from `gofmt`),go,0,1,1
+"@@ -39,6 +39,8 @@ func defaultCipherSuites() []uint16 {
+ 		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+ 		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+ 		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
++		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
++		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+ 	}
+ }
+ ","What is default for 1.8 if not configured at all? I think they put ChaCha first because of its performance gains, even over AES..",go,1,1,1
+"@@ -93,7 +93,10 @@ func (m *memKVStore) Batch() KVStoreBatch {
+ 	return NewMemKVStoreBatch(&m.data)
+ }
+ 
+-const fileMode = 0600
++const (
++	fileMode = 0600
++	quota    = 3
++)
+ 
+ // boltDB is KVStore implementation based bolt DB
+ type boltDB struct {",quota -> numRetries And can we make it configurable?,go,1,1,1
+"@@ -20,11 +20,13 @@ import (
+ 	""context""
+ 	""encoding/json""
+ 	""fmt""
+-	""github.com/jetstack/cert-manager/pkg/acme""
+ 	""hash/fnv""
+ 
++	""github.com/jetstack/cert-manager/pkg/api/util""
++
+ 	metav1 ""k8s.io/apimachinery/pkg/apis/meta/v1""
+ 
++	""github.com/jetstack/cert-manager/pkg/acme""
+ 	acmecl ""github.com/jetstack/cert-manager/pkg/acme/client""
+ 	cmacme ""github.com/jetstack/cert-manager/pkg/apis/acme/v1""
+ 	cmapi ""github.com/jetstack/cert-manager/pkg/apis/certmanager/v1""",nit: This import should be grouped with the other cert-manager imports,go,1,1,1
+"@@ -29,11 +29,11 @@ const (
+ )
+ 
+ var (
+-	validArgs       = []string{""endpoint"", ""wallet"", ""explorer"", ""defaultacc""}
+-	validGetArgs    = []string{""endpoint"", ""wallet"", ""explorer"", ""defaultacc"", ""all""}
+-	validExpl       = []string{""iotexscan"", ""iotxplorer""}
+-	urlCompile      = regexp.MustCompile(urlPattern)
+-	endpointCompile = regexp.MustCompile(""^"" + endpointPattern + ""$"")
++	supportedLanguage = []string{""English"", ""Chinese""}
++	validArgs         = []string{""endpoint"", ""wallet"", ""explorer"", ""defaultacc"", ""language""}
++	validGetArgs      = []string{""endpoint"", ""wallet"", ""explorer"", ""defaultacc"", ""language"", ""all""}
++	validExpl         = []string{""iotexscan"", ""iotxplorer""}
++	endpointCompile   = regexp.MustCompile(""^"" + endpointPattern + ""$"")
+ )
+ 
+ // configGetCmd represents the config get command","` supportedLanguage = []string{""English"", """"}`",go,1,1,1
+"@@ -235,9 +235,11 @@ func TestProtocol_ClaimReward(t *testing.T) {
+                 unclaimedBalance, _, err := p.UnclaimedBalance(ctx, sm, claimActionCtx.Caller)
+                 require.NoError(t, err)
+                 assert.Equal(t, big.NewInt(5), unclaimedBalance)
++                claimActionCtx.Caller = identityset.Address(28)
++
+                 primAcc, err := accountutil.LoadAccount(sm, hash.BytesToHash160(claimActionCtx.Caller.Bytes()))
+                 require.NoError(t, err)
+-                assert.Equal(t, big.NewInt(1000005), primAcc.Balance)
++                assert.Equal(t, big.NewInt(980), primAcc.Balance)
+ 
+                 // Claim negative amount of token will fail
+                 _, err = p.Claim(claimCtx, sm, big.NewInt(-5))","i think we need to find out the root-cause? as mentioned in #2521, this test can pass in `make test`, but only fails when running as a separate test. must be sth like testConfig() or a local variable used by earlier test but changes when running separately. the proper fix is to understand why it happened that way and find out the exact root-cause",go,0,1,1
+"@@ -170,6 +170,13 @@ const (
+ 	// {{ .Volume.isRestoreVol }}
+ 	IsRestoreVolumePropertyVTP VolumeTLPProperty = ""isRestoreVol""
+ 
++	// IsPatchVolumePropertyVTP indicates if the volume is being
++	// created with patch enabled.
++	//NOTE:
++	// The Corresponding value will be accessed as
++	// {{ .Volume.isPatch }}
++	IsPatchVolumePropertyVTP VolumeTLPProperty = ""isPatch""
++
+ 	// StorageClassVTP is the StorageClass of the volume
+ 	//
+ 	// NOTE:",Please avoid changing this file. Remove this constant.,go,1,1,1
+"@@ -24,7 +24,12 @@ import (
+ 	""github.com/iotexproject/iotex-core/state/factory""
+ )
+ 
+-const testnetActionPath = ""testnet_actions.yaml""
++const (
++	testnetActionPath = ""testnet_actions.yaml""
++	// TODO: Gensis block producer's keypair should be a config. Note genesis block producer is not the creator
++	genesisProducerPublicKey  = ""0444b7ac782c60e90b1aa263fe4d61dbe73bf8260d3e773ce9f4f0dbc181e8e5f2e3b6f6d4cf47f1d53af95cf24b88b92037125c7bf6f63b55bebbb8579b3a9b24""
++	genesisProducerPrivateKey = ""bace9b2435db45b119e1570b4ea9c57993b2311e0c408d743d87cd22838ae892""
++)
+ 
+ // Genesis defines the Genesis default settings
+ type Genesis struct {",line is 161 characters (from `lll`),go,1,0,1
+"@@ -149,15 +149,6 @@ func setLogCode(s *scope, name string, f func(format string, args ...interface{}
+ // new objects to the build graph.
+ func buildRule(s *scope, args []pyObject) pyObject {
+         s.NAssert(s.pkg == nil, ""Cannot create new build rules in this context"")
+-        // We need to set various defaults from config here; it is useful to put it on the rule but not often so
+-        // because most rules pass them through anyway.
+-        // TODO(peterebden): when we get rid of the old parser, put these defaults on all the build rules and
+-        //                   get rid of this.
+-        args[11] = defaultFromConfig(s.config, args[11], ""DEFAULT_VISIBILITY"")
+-        args[15] = defaultFromConfig(s.config, args[15], ""DEFAULT_TESTONLY"")
+-        args[30] = defaultFromConfig(s.config, args[30], ""DEFAULT_LICENCES"")
+-        args[20] = defaultFromConfig(s.config, args[20], ""BUILD_SANDBOX"")
+-        args[21] = defaultFromConfig(s.config, args[21], ""TEST_SANDBOX"")
+         target := createTarget(s, args)
+         s.Assert(s.pkg.Target(target.Label.Name) == nil, ""Duplicate build target in %s: %s"", s.pkg.Name, target.Label.Name)
+         populateTarget(s, target, args)",you sure this is safe? did we put the defaults in everywhere they're needed?,go,1,1,0
+"@@ -0,0 +1,18 @@
++// +build windows
++
++// Copyright 2014-2016 Amazon.com, Inc. or its affiliates. All Rights Reserved.
++//
++// Licensed under the Apache License, Version 2.0 (the ""License""). You may
++// not use this file except in compliance with the License. A copy of the
++// License is located at
++//
++//	http://aws.amazon.com/apache2.0/
++//
++// or in the ""license"" file accompanying this file. This file is distributed
++// on an ""AS IS"" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
++// express or implied. See the License for the specific language governing
++// permissions and limitations under the License.
++
++package api
++
++const OSType = ""windows""",Is this mainly used for task annotation purposes ?,go,1,1,1
+"@@ -152,14 +152,10 @@ func (c *Client) buildTestCommand(target *core.BuildTarget) (*pb.Command, error)
+ // getCommand returns the appropriate command to use for a target.
+ func (c *Client) getCommand(target *core.BuildTarget) string {
+         if target.IsRemoteFile {
+-                // TODO(peterebden): we should handle this using the Remote Fetch API once that's available.
+-                urls := make([]string, len(target.Sources))
+-                for i, s := range target.Sources {
+-                        urls[i] = ""curl -fsSLo $OUT "" + s.String()
+-                }
+-                cmd := strings.Join(urls, "" || "")
++                // This isn't a real command, but it suits us to construct a pseudo-version of one.
++                cmd := ""fetch "" + strings.Join(target.AllURLs(c.state.Config), "" "") + "" & verify "" + strings.Join(target.Hashes, "" "")
+                 if target.IsBinary {
+-                        return ""("" + cmd + "") && chmod +x $OUT""
++                        return cmd + "" binary""
+                 }
+                 return cmd
+         }",How does this work?,go,1,0,1
+"@@ -110,8 +110,14 @@ type CASTemplateSpec struct {
+ 	// Defaults are a list of default configurations that may be applied
+ 	// during provisioning of a CAS volume
+ 	Defaults []Config `json:""defaultConfig""`
++	// TaskNamespace is the namespace where the tasks
++	// are expected to be found
++	TaskNamespace string `json:""taskNamespace""`
+ 	// RunTasks refers to a set of tasks to be run
+ 	RunTasks RunTasks `json:""run""`
++	// OutputTask is the task that has the CAS template result's output
++	// format
++	OutputTask string `json:""output""`
+ }
+ 
+ // CASUpdateSpec is the specification to update a CAS volume","would it be ever possible that the all runtasks don't run in the same namespace? If yes, then we should probably make namespace updatable by having it in runtask also.",go,1,1,1
+"@@ -21,6 +21,7 @@ import (
+ 
+ 	go_dockerclient ""github.com/fsouza/go-dockerclient""
+ 	gomock ""github.com/golang/mock/gomock""
++	""github.com/aws/amazon-ecs-agent/agent/api""
+ )
+ 
+ // Mock of Manager interface","I think the convention is to order import statements as: 1) native go packages, 2) packages from the same repo, 3) other packages, with an empty line between each group. So this new line should be in 21?",go,1,1,1
+"@@ -15,4 +15,5 @@ type execVars struct {
+ 	taskID           string
+ 	containerName    string
+ 	skipConfirmation bool
++	yes              *bool
+ }","I wonder if we should make this flag more descriptive, like `ssmPlugin` or `updateSSM` or something?",go,1,1,1
+"@@ -191,7 +191,11 @@ func MakeOfflineNode(t *testing.T) *Node {
+ // DefaultTestingConfig returns default configuration for testing
+ func DefaultTestingConfig() []ConfigOpt {
+         return []ConfigOpt{
+-                VerifierConfigOption(verification.NewFakeVerifier(true, nil)),
++                VerifierConfigOption(verification.NewFakeVerifier(verification.FakeVerifierConfig{
++                        VerifyPoStValid:                true,
++                        VerifyPieceInclusionProofValid: true,
++                        VerifySealValid:                true,
++                })),
+         }
+ }
+ ","In my branch, the tests pass with this option removed. I believe we're only using this config for testing init and message propagation (which shouldn't touch proofs). Is this necessary?",go,1,1,1
+"@@ -191,7 +191,7 @@ func makeErrorCookie(value string) *http.Cookie {
+ 		MaxAge:   defaultErrorCookieMaxAge,
+ 		Path:     rootPath,
+ 		Secure:   true,
+-		HttpOnly: true,
++		HttpOnly: false,
+ 		SameSite: http.SameSiteLaxMode,
+ 	}
+ }",I changed this value to read the error message from JavaScript.,go,1,1,1
+"@@ -11,9 +11,11 @@ import (
+ 
+ 	""github.com/ethersphere/bee/pkg/logging""
+ 	""github.com/ethersphere/bee/pkg/statestore/leveldb""
+-	""github.com/ethersphere/bee/pkg/statestore/mock""
+ 	""github.com/ethersphere/bee/pkg/storage""
+ 	""github.com/ethersphere/bee/pkg/swarm""
++
++	ldb ""github.com/syndtr/goleveldb/leveldb""
++	ldbs ""github.com/syndtr/goleveldb/leveldb/storage""
+ )
+ 
+ // InitStateStore will initialize the stateStore with the given path to the",is it not possible to move this whole block into the `statestore/leveldb` implementation?,go,1,1,1
+"@@ -19,13 +19,14 @@ func TestTruncate(t *testing.T) {
+ 		{""foo"", 0, """"},
+ 		{""foo"", -1, """"},
+ 		{""Löwen"", 4, ""Löwe""},
+-		{""あああああああああ/data"", 10, ""あああああ""},
+-		{""あああああああああ/data"", 11, ""あああああ""},
++		{""あああああ/data"", 7, ""あああ""},
++		{""あああああ/data"", 10, ""あああああ""},
++		{""あああああ/data"", 11, ""あああああ/""},
+ 	}
+ 
+ 	for _, test := range tests {
+ 		t.Run("""", func(t *testing.T) {
+-			out := truncate(test.input, test.width)
++			out := Truncate(test.input, test.width)
+ 			if out != test.output {
+ 				t.Fatalf(""wrong output for input %v, width %d: want %q, got %q"",
+ 					test.input, test.width, test.output, out)","I think we should also keep this test, which checks that a unicode character is not split in half.",go,1,1,1
+"@@ -804,9 +804,7 @@ func TestConnectionIsClosedOnIdle(t *testing.T) {
+ 		_heartbeatJitter:     10 * time.Millisecond,
+ 	}
+ 	go func() {
+-		timer := newDisconnectionTimer(mockWsClient, acsSession.heartbeatTimeout(), acsSession.heartbeatJitter())
+-		defer timer.Stop()
+-		acsSession.startACSSession(mockWsClient, timer)
++		acsSession.startACSSession(mockWsClient)
+ 	}()
+ 
+ 	// Wait for connection to be closed. If the connection is not closed",nit: remove the function wrapper `go acsSession.startACSSession(mockWsClient)`,go,1,1,1
+"@@ -21,7 +21,10 @@ func setupGetAncestorTests(require *require.Assertions) (context.Context, *th.Te
+ // requireGrowChain grows the given store numBlocks single block tipsets from
+ // its head.
+ func requireGrowChain(ctx context.Context, require *require.Assertions, blockSource *th.TestFetcher, chainStore chain.Store, numBlocks int) {
+-	link := chainStore.Head()
++	head := chainStore.GetHead()
++	headTipSetAndState, err := chainStore.GetTipSetAndState(ctx, head)
++	require.NoError(err)
++	link := headTipSetAndState.TipSet
+ 
+ 	signer, ki := types.NewMockSignersAndKeyInfo(1)
+ 	mockSignerPubKey := ki[0].PublicKey()",these three lines are repeated a zillion times if you want to make a helper out of 'em. up to you.,go,1,1,1
+"@@ -28,6 +28,8 @@ var statesaver statemanager.Saver = statemanager.NewNoopStateManager()
+ 
+ func HandleEngineEvents(taskEngine engine.TaskEngine, client api.ECSClient, saver statemanager.Saver) {
+ 	statesaver = saver
++	handler := NewTaskHandler()
++
+ 	for {
+ 		taskEvents, containerEvents := taskEngine.TaskEvents()
+ ",It looks like now you have two separate `taskHandler`s: one here and one in `agent/acs/handler/payload_handler.go`. Is that intentional?,go,1,1,1
+"@@ -27,10 +27,11 @@ type Interface interface {
+ }
+ 
+ type ipset struct {
++	refCount
+ }
+ 
+ func New() Interface {
+-	return &ipset{}
++	return &ipset{refCount: newRefCount()}
+ }
+ 
+ func (i *ipset) Create(ipsetName Name, ipsetType Type) error {",Is it possible for `Destroy` to be called twice with the same `ipsetName`?,go,1,1,1
+"@@ -90,8 +90,7 @@ func TestFormatWithCommentsParens(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 
+-	if want := `
+-// comment\n(1 * 1)`; want != got {
++	if want := `// comment\n(1 * 1)`; want != got {
+ 		t.Errorf(""unexpected formatted file -want/+got:\n\t- %q\n\t+ %q"", want, got)
+ 	}
+ }",Is this a change that was added to the formatter or just a go format change?,go,1,1,1
+"@@ -16,6 +16,7 @@ type Connection interface {
+ 	BreakTie(Connection) ConnectionTieBreak
+ 	RemoteTCPAddr() string
+ 	Established() bool
++	Outbound() bool
+ 	Shutdown(error)
+ 	Log(args ...interface{})
+ }","Suggested order: Local, Remote, RemoteTCPAddr, Outbound, Established, BreakTie, Shutdown, Log.",go,1,1,1
+"@@ -40,6 +40,18 @@ func (z ChannelID) MarshalJSON() ([]byte, error) {
+ 	return json.Marshal(z.val)
+ }
+ 
++// MarshalBinary converts a ChannelID to bytes
++func (z *ChannelID) MarshalBinary() ([]byte, error) {
++	return z.Bytes(), nil
++}
++
++// UnmarshalBinary converts bytes to a ChannelID
++func (z *ChannelID) UnmarshalBinary(b []byte) error {
++	chID := NewChannelIDFromBytes(b)
++	*z = *chID
++	return nil
++}
++
+ // An ChannelID is a signed multi-precision integer.
+ type ChannelID struct{ val *big.Int }
+ ",the idea was for this structures to implement `Encode/Decode` which can be then use with multiple encoders.,go,1,1,1
+"@@ -230,7 +230,7 @@ var TxnTypeNames = []string{
+ }
+ 
+ // map TxnTypeName to its enum index, for `txn TypeEnum`
+-var txnTypeIndexes map[string]int
++var txnTypeIndexes map[string]uint64
+ 
+ // map symbolic name to uint64 for assembleInt
+ var txnTypeConstToUint64 map[string]uint64","why uint64? these are indexes in an array, and no plans to have 2^64 long arrays",go,1,1,1
+"@@ -42,10 +42,11 @@ var (
+ 		""sles-12-byol"":        ""suse/translate_sles_12_byol.wf.json"",
+ 		""sles-15-byol"":        ""suse/translate_sles_15_byol.wf.json"",
+ 		""rhel-6"":              ""enterprise_linux/translate_rhel_6_licensed.wf.json"",
+-		""rhel-6-byol"":         ""enterprise_linux/translate_rhel_6_byol.wf.json"",
+ 		""rhel-7"":              ""enterprise_linux/translate_rhel_7_licensed.wf.json"",
+ 		""rhel-8"":              ""enterprise_linux/translate_rhel_8_licensed.wf.json"",
++		""rhel-6-byol"":         ""enterprise_linux/translate_rhel_6_byol.wf.json"",
+ 		""rhel-7-byol"":         ""enterprise_linux/translate_rhel_7_byol.wf.json"",
++		""rhel-8-byol"":         ""enterprise_linux/translate_rhel_8_byol.wf.json"",
+ 		""ubuntu-1404"":         ""ubuntu/translate_ubuntu_1404.wf.json"",
+ 		""ubuntu-1604"":         ""ubuntu/translate_ubuntu_1604.wf.json"",
+ 		""ubuntu-1804"":         ""ubuntu/translate_ubuntu_1804.wf.json"",",@zmarano -- Any thoughts on the name of the user-facing OS name? (`rhel-8-byol` vs `rhel-8-byos`),go,0,1,1
+"@@ -14,14 +14,13 @@ import (
+ 	""github.com/aws/copilot-cli/internal/pkg/aws/aas""
+ 	""github.com/aws/copilot-cli/internal/pkg/aws/cloudwatch""
+ 	""github.com/aws/copilot-cli/internal/pkg/aws/ecs""
+-	rg ""github.com/aws/copilot-cli/internal/pkg/aws/resourcegroups""
+ 	""github.com/aws/copilot-cli/internal/pkg/aws/sessions""
+ 	""github.com/aws/copilot-cli/internal/pkg/deploy""
++	copiEcs ""github.com/aws/copilot-cli/internal/pkg/ecs""
+ 	""github.com/aws/copilot-cli/internal/pkg/term/color""
+ )
+ 
+ const (
+-	ecsServiceResourceType    = ""ecs:service""
+ 	maxAlarmStatusColumnWidth = 30
+ )
+ ","nit: I'd instead rename the `aws/ecs` to `awsECS`. Reading ""copiEcs"" is kinda odd :P",go,1,1,1
+"@@ -43,8 +43,9 @@ const (
+ 	ServiceHeaderKey = ""$rpc$-service""
+ 	// ApplicationErrorNameHeaderKey is the response header key for the application error name.
+ 	ApplicationErrorNameHeaderKey = ""$rpc$-application-error-name""
+-	// ApplicationErrorMessageHeaderKey is the response header key for the application error messages.
+-	ApplicationErrorMessageHeaderKey = ""$rpc$-application-error-message""
++	// ApplicationErrorDetailsHeaderKey is the response header key for the
++	// application error details string.
++	ApplicationErrorDetailsHeaderKey = ""$rpc$-application-error-details""
+ 	// ApplicationErrorCodeHeaderKey is the response header key for the application error code.
+ 	ApplicationErrorCodeHeaderKey = ""$rpc$-application-error-code""
+ )","Same as above, what is the implication of this change? this is a public method, are you sure that nobody is using this?",go,1,1,1
+"@@ -16,6 +16,15 @@ import (
+ )
+ 
+ func SpawnHashStateStage(s *StageState, db ethdb.Database, tmpdir string, quit <-chan struct{}) error {
++	
++	go func() {
++		// we block until we can read something from the channel and then we reset hash state
++		<-quit
++		if err := ResetHashState(db); err != nil {
++			fmt.Errorf(""Unable to reset hashstate %v"", err)
++		}
++	}()
++
+ 	to, err := s.ExecutionAt(db)
+ 	if err != nil {
+ 		return err",%w is used for formatting errors,go,1,1,1
+"@@ -19,7 +19,7 @@ package participation
+ import (
+         ""path/filepath""
+         ""testing""
+-
++        ""runtime"" 
+         ""github.com/stretchr/testify/require""
+ 
+         ""github.com/algorand/go-algorand/config""",add an empty line after this entry,go,0,0,1
+"@@ -19,7 +19,7 @@ import net.sourceforge.pmd.lang.java.qname.JavaTypeQualifiedName;
+  *
+  * </pre>
+  */
+-public class ASTEnumConstant extends AbstractJavaNode implements JavaQualifiableNode {
++public class ASTEnumConstant extends AbstractJavaTypeNode implements JavaQualifiableNode {
+ 
+     private JavaTypeQualifiedName qualifiedName;
+ ","I'm not sure how this interacts with pmd 7 - I think enum constants have the type of their enum type (not an anonymous class), but the AnonymousClass node, if any, will have a different type... Something to keep in mind when merging into pmd 7",java,1,1,1
+"@@ -58,6 +58,8 @@ public abstract class AbstractAzkabanServlet extends HttpServlet {
+   private static final String AZKABAN_FAILURE_MESSAGE =
+       ""azkaban.failure.message"";
+   private static final long serialVersionUID = -1;
++
++  protected String passwordPlaceholder;
+   private AzkabanServer application;
+   private String name;
+   private String label;",Why passwordPlaceholder is added in AbstractAzkabanServlet instead of LoginAbstractAzkabanServlet?,java,1,0,1
+"@@ -26,6 +26,7 @@ public class NodeJSSampleTypeNameConverter implements SampleTypeNameConverter {
+   /** A map from primitive types in proto to NodeJS counterparts. */
+   private static final ImmutableMap<Field.Kind, String> PRIMITIVE_TYPE_MAP =
+       ImmutableMap.<Field.Kind, String>builder()
++          .put(Field.Kind.TYPE_UNKNOWN, ""Object"")
+           .put(Field.Kind.TYPE_BOOL, ""boolean"")
+           .put(Field.Kind.TYPE_INT32, ""number"")
+           .put(Field.Kind.TYPE_INT64, ""number"")","Currently PRIMITIVE_TYPE_MAP is used by getTypeNameForElementType, but IIUC this is only used by getTypeName, which I think uses it incorrectly, since Javascript arrays are untyped. I'm thinking neither PRIMITIVE_TYPE_MAP nor getTypeNameForElementType may be necessary.",java,1,1,1
+"@@ -145,6 +145,10 @@ public class TemporaryFilesystem {
+   }
+ 
+   public boolean deleteBaseDir() {
+-    return baseDir.delete();
++    boolean wasDeleted = baseDir.delete();
++    if (wasDeleted) {
++      Runtime.getRuntime().removeShutdownHook(shutdownHook);
++    }
++    return wasDeleted;
+   }
+ }","I don't think we need to necessarily check if that returned true or not, we should just remove the shutdown hook. Since nothing would check or do anything with this flag anyways.",java,1,1,1
+"@@ -45,6 +45,7 @@ public class Constants {
+   public static final int MEMORY_CHECK_RETRY_LIMIT = 720;
+   public static final int DEFAULT_PORT_NUMBER = 8081;
+   public static final int DEFAULT_SSL_PORT_NUMBER = 8443;
++  public static final int DEFAULT_THREAD_NUMBER = 20;
+ 
+   public static class ConfigurationKeys {
+     // These properties are configurable through azkaban.properties",Can we make the name more explicit? It seems too general to me.,java,1,1,1
+"@@ -57,12 +57,13 @@ public class FastDownloaderFactory {
+ 
+     final Path fastSyncDataDirectory = dataDirectory.resolve(FAST_SYNC_FOLDER);
+     final FastSyncStateStorage fastSyncStateStorage =
+-        new FastSyncStateStorage(fastSyncDataDirectory);
++        new FastSyncStateStorage(fastSyncDataDirectory, protocolSchedule);
+ 
+     if (syncConfig.getSyncMode() != SyncMode.FAST) {
+       if (fastSyncStateStorage.isFastSyncInProgress()) {
+         throw new IllegalStateException(
+-            ""Unable to change the sync mode when fast sync is incomplete, please restart with fast sync mode"");
++            ""Unable to change the sync mode when fast sync is incomplete, please restart with fast""
++                + "" sync mode"");
+       } else {
+         return Optional.empty();
+       }",Is it necessary to split these strings into 120 column bits? It increases the line count in an already large PR.,java,1,1,1
+"@@ -28,7 +28,9 @@ import org.springframework.util.StringUtils;
+ public class MicroserviceConfigLoader extends YAMLConfigLoader {
+   private static final Logger LOGGER = LoggerFactory.getLogger(MicroserviceConfigLoader.class);
+ 
+-  private static final String ADDITIONAL_CONFIG_URL = ""cse.configurationSource.additionalUrls"";
++  private static final String ADDITIONAL_CONFIG_URL = ""servicecomb.configurationSource.additionalUrls"";
++
++  private static final String DEFAULT_FILE_NAME = ""servicecomb.configurationSource.defaultFileName"";
+ 
+   /**
+    * Default configuration file name to be used by default constructor. This file should","not compatible? because we only copy config items in configuration source, not in system.property?",java,1,1,1
+"@@ -16,9 +16,4 @@ package com.google.api.codegen.transformer.nodejs;
+ 
+ import com.google.api.codegen.transformer.FeatureConfig;
+ 
+-public class NodeJSFeatureConfig extends FeatureConfig {
+-  @Override
+-  public boolean enableGrpcStreaming() {
+-    return true;
+-  }
+-}
++public class NodeJSFeatureConfig extends FeatureConfig {}",We can rename `FeatureConfig` to `DefaultFeatureConfig` so the languages use default values will not need to create an empty subclass.,java,1,1,1
+"@@ -24,7 +24,6 @@ import org.apache.http.protocol.HttpContext;
+ import org.camunda.bpm.client.impl.EngineClientLogger;
+ import org.camunda.bpm.client.impl.ExternalTaskClientLogger;
+ import org.camunda.bpm.client.interceptor.ClientRequestInterceptor;
+-
+ import java.io.IOException;
+ import java.util.List;
+ import java.util.Map;","I think you can revert all changes of this class, so the commit for the PR is clean in the end.",java,1,1,1
+"@@ -322,14 +322,14 @@ public class GraphiteReporter extends ScheduledReporter {
+     }
+ 
+     private void sendIfEnabled(MetricAttribute type, String name, double value, long timestamp) throws IOException {
+-        if (getDisabledMetricAttributes().contains(type)){
++        if (isMetricAttributeDisabled(type)){
+             return;
+         }
+         graphite.send(prefix(name, type.getCode()), format(value), timestamp);
+     }
+ 
+     private void sendIfEnabled(MetricAttribute type, String name, long value, long timestamp) throws IOException {
+-        if (getDisabledMetricAttributes().contains(type)){
++        if (isMetricAttributeDisabled(type)){
+             return;
+         }
+         graphite.send(prefix(name, type.getCode()), format(value), timestamp);",Let's avoid changes in the classes not directly targeted by this pull request.,java,1,1,1
+"@@ -23,6 +23,8 @@ import javax.annotation.Nullable;
+  */
+ @AutoValue
+ public abstract class InitFieldConfig {
++  private static String randomValueToken = ""$RANDOM"";
++
+   public abstract String fieldPath();
+ 
+   @Nullable",Should this be final?,java,1,0,1
+"@@ -33,6 +33,18 @@ public class TransactionPoolOptions
+   private static final String ETH65_TX_ANNOUNCED_BUFFERING_PERIOD_FLAG =
+       ""--Xeth65-tx-announced-buffering-period-milliseconds"";
+ 
++  private static final String STRICT_TX_REPLAY_PROTECTION_ENABLED_FLAG =
++      ""--strict-tx-replay-protection-enabled"";
++
++  @CommandLine.Option(
++      names = {STRICT_TX_REPLAY_PROTECTION_ENABLED_FLAG},
++      paramLabel = ""<Boolean>"",
++      description =
++          ""Require transactions submitted via JSON-RPC to use replay protection in accordance with EIP-155 (default: ${DEFAULT-VALUE})"",
++      fallbackValue = ""true"",
++      arity = ""0..1"")
++  private Boolean strictTxReplayProtectionEnabled = false;
++
+   @CommandLine.Option(
+       names = {TX_MESSAGE_KEEP_ALIVE_SEC_FLAG},
+       paramLabel = ""<INTEGER>"",","Ah, so it IS unstable already. Cool, lets prefix with X.",java,1,0,0
+"@@ -32,6 +32,12 @@ import azkaban.utils.JSONUtils;
+ import azkaban.utils.Pair;
+ import azkaban.utils.Props;
+ import com.google.common.collect.Lists;
++import org.apache.commons.lang.StringUtils;
++import org.apache.log4j.Logger;
++import org.joda.time.DateTime;
++
++import javax.inject.Inject;
++import javax.inject.Singleton;
+ import java.io.File;
+ import java.io.IOException;
+ import java.lang.Thread.State;",Is it possible to gradually move away from joda time to java8's time apis?,java,1,1,1
+"@@ -72,6 +72,7 @@ public class TestMineBlocks implements JsonRpcMethod {
+             Functions.identity(),
+             context.getEthHashSolver(),
+             Wei.ZERO,
++            0.0,
+             blockchain.getChainHeadHeader());
+     final Block block = blockCreator.createBlock(retesethClock.instant().getEpochSecond());
+ ",Is the ratio at 0 normal in this case?,java,1,1,1
+"@@ -37,6 +37,12 @@ module Selenium
+         def bridge_class
+           Bridge
+         end
++
++        def print_page(**options)
++          options[:page_ranges] &&= Array(options[:page_ranges])
++
++          bridge.print_page(options)
++        end
+       end # Driver
+     end # Firefox
+   end # WebDriver",Same here. and all others.,java,0,0,1
+"@@ -486,10 +486,10 @@ public class BlockchainQueries {
+    */
+   public List<LogWithMetadata> matchingLogs(
+       final long fromBlockNumber, final long toBlockNumber, final LogsQuery query) {
+-    return LongStream.rangeClosed(fromBlockNumber, toBlockNumber)
+-        .mapToObj(blockchain::getBlockHashByNumber)
+-        .takeWhile(Optional::isPresent)
+-        .flatMap(Optional::stream)
++    return LongStream.rangeClosed(fromBlockNumber, Math.min(toBlockNumber, headBlockNumber()))
++        .mapToObj(blockchain::getBlockHeader)
++        .filter(header -> header.isPresent() && query.couldMatch(header.get().getLogsBloom()))
++        .map(header -> header.get().getHash())
+         .flatMap(hash -> matchingLogs(hash, query).stream())
+         .collect(Collectors.toList());
+   }","Interesting interaction here, if we use a `takeWhile` instead of the `Math.min`, we can actually return more logs in the case where a new block was added while the processing of the rpc call is happening because Java Streams are pull based. I lean towards the `takeWhile` approach because if the user asks for a block that's slightly too high, this could make the difference between them seeing most of what they wanted and everything they wanted (in the case where a block is stored in time for the end of the stream to be reached).",java,1,1,0
+"@@ -1990,6 +1990,19 @@ class CSharpGenerator : public BaseGenerator {
+           ""Newtonsoft.Json.Formatting.Indented);\n"";
+       code += ""  }\n"";
+     }
++    if (parser_.root_struct_def_ == &struct_def) {
++      code += ""  public static "" + class_name +
++              "" DeserializeFromFlatBuffers(byte[] fbBuffer) {\n"";
++      code += ""    return "" + struct_def.name + "".GetRootAs"" + struct_def.name +
++              ""(new ByteBuffer(fbBuffer)).UnPack();\n"";
++      code += ""  }\n"";
++      code += ""  public byte[] SerializeToFlatBuffers() {\n"";
++      code += ""    var fbb = new FlatBufferBuilder(1);\n"";
++      code +=
++          ""    fbb.Finish("" + struct_def.name + "".Pack(fbb, this).Value);\n"";
++      code += ""    return fbb.DataBuffer.ToSizedArray();\n"";
++      code += ""  }\n"";
++    }
+     code += ""}\n\n"";
+   }
+ ","1 byte is a really bad default size, it is going to spend a lot of time re-allocating buffers this way. Probably anywhere from 4 to 64 K would be entirely reasonable given that this is very temporary.",java,1,1,1
+"@@ -0,0 +1,10 @@
++package com.github.javaparser.ast.nodeTypes;
++
++import com.github.javaparser.ast.Node;
++import com.github.javaparser.ast.expr.Expression;
++
++public interface NodeWithExpression<N extends Node> {
++    Expression getExpression();
++
++    N setExpression(Expression expression);
++}",What are those nodes with Expressions? Are Expressions wrapping other expressions? Any sort of node containing one single expression?,java,1,1,1
+"@@ -234,6 +234,8 @@ class ModifyingSuggester {
+   }
+ 
+   private void tryRemovingChar(String word) {
++    if (word.length() == 1) return;
++
+     for (int i = 0; i < word.length(); i++) {
+       trySuggestion(word.substring(0, i) + word.substring(i + 1));
+     }",We don't accept empty words for lookup anymore,java,1,1,1
+"@@ -19,7 +19,10 @@ package org.openqa.selenium.grid.graphql;
+ 
+ import graphql.schema.DataFetcher;
+ import graphql.schema.DataFetchingEnvironment;
++
++import org.openqa.selenium.SessionNotCreatedException;
+ import org.openqa.selenium.grid.distributor.Distributor;
++import org.openqa.selenium.grid.sessionmap.SessionMap;
+ import org.openqa.selenium.internal.Require;
+ 
+ import java.net.URI;",You can safely revert changes to this file.,java,1,0,1
+"@@ -77,7 +77,7 @@ public class SignatureDeclareThrowsExceptionRule extends AbstractJavaRule {
+             }
+         }
+         if (node.jjtGetNumChildren() != 0 && node.jjtGetChild(0) instanceof ASTExtendsList) {
+-            ASTClassOrInterfaceType type = (ASTClassOrInterfaceType) node.jjtGetChild(0).jjtGetChild(0);
++            ASTClassOrInterfaceType type = node.jjtGetChild(0).getFirstChildOfType(ASTClassOrInterfaceType.class);
+             if (isJUnitTest(type)) {
+                 junitImported = true;
+                 return super.visit(node, data);",This block and the one checking the interfaces (above) could be simplified using the methods `getSuperInterfacesTypeNodes` and `getSuperClassTypeNode` of `ASTClassOrInterfaceDeclaration`,java,1,1,1
+"@@ -40,6 +40,10 @@ public abstract class DateTimeUtils {
+     }
+   }
+ 
++  public static String withTimezone(Date date) {
++      return DATE_FORMAT_WITH_TIMEZONE.format(date);
++  }
++
+   public static Date updateTime(Date now, Date newTime) {
+     Calendar c = Calendar.getInstance();
+     c.setTime(now);","I would also call this method in the `return` statement of the `withTimezone(String dateString)` method above (line 37), so we don't have duplicate methods.",java,1,1,1
+"@@ -49,8 +49,10 @@ public class IndexKey extends Key {
+     for (int i = 0; i < indexColumns.size(); i++) {
+       TiIndexColumn col = indexColumns.get(i);
+       DataType colTp = tableInfo.getColumn(col.getOffset()).getType();
++      // using convertToTiDBType implicitly since the get method does not convert
++      Object convertedValue = colTp.convertToTiDBType(row.get(col.getOffset(), colTp));
+       // truncate index's if necessary
+-      Key key = TypedKey.toTypedKey(row.get(col.getOffset(), colTp), colTp, (int) col.getLength());
++      Key key = TypedKey.toTypedKey(convertedValue, colTp, (int) col.getLength());
+       keys[i] = key;
+     }
+     return keys;","I feel like conversion should be done at the upper level. At this stage, row is already converted. Please correct me if my understanding is not quite right.",java,1,1,1
+"@@ -3773,11 +3773,7 @@ public class MessagingController {
+             return false;
+         }
+ 
+-        if (account.isNotifyContactsMailOnly() && !contacts.isAnyInContacts(message.getFrom())) {
+-            return false;
+-        }
+-
+-        return true;
++        return !account.isNotifyContactsMailOnly() || contacts.isAnyInContacts(message.getFrom());
+     }
+ 
+     public void deleteAccount(Account account) {",I find the old way makes this easier to read.,java,1,1,1
+"@@ -1,4 +1,4 @@
+-/* Copyright 2018 Google LLC
++/* Copyright 2016 Google LLC
+  *
+  * Licensed under the Apache License, Version 2.0 (the ""License"");
+  * you may not use this file except in compliance with the License.",Why is the year changing here?,java,1,1,1
+"@@ -128,11 +128,13 @@ class GenericReaders {
+     }
+ 
+     @Override
++    @SuppressWarnings(""checkstyle:hiddenField"")
+     protected Object get(Record struct, int pos) {
+       return struct.get(pos);
+     }
+ 
+     @Override
++    @SuppressWarnings(""checkstyle:hiddenField"")
+     protected void set(Record struct, int pos, Object value) {
+       struct.set(pos, value);
+     }","I know this rule is a bit controversial but I think it is better to follow it everywhere or ignore it globally. In this particular case, it seems appropriate to follow and, maybe, give another name to the field. It is not really clear the difference between the field and passed object.",java,1,1,1
+"@@ -40,6 +40,12 @@ public abstract class MethodDescriptorView {
+ 
+   public abstract List<HeaderRequestParamView> headerRequestParams();
+ 
++  @Nullable
++  public abstract String requestFormatterName();
++
++  @Nullable
++  public abstract String responseFormatterName();
++
+   public boolean hasHeaderRequestParams() {
+     return headerRequestParams() != null && !headerRequestParams().isEmpty();
+   }","These names aren't needed any more, right?",java,1,0,1
+"@@ -113,7 +113,7 @@ public abstract class SyncTargetManager {
+   protected abstract CompletableFuture<Optional<EthPeer>> selectBestAvailableSyncTarget();
+ 
+   private CompletableFuture<SyncTarget> waitForPeerAndThenSetSyncTarget() {
+-    return waitForNewPeer().handle((r, t) -> r).thenCompose((r) -> selectNewSyncTarget());
++    return waitForNewPeer().thenCompose(__ -> selectNewSyncTarget());
+   }
+ 
+   private CompletableFuture<?> waitForNewPeer() {",So this is the main change? the rest are all style adjustments?,java,1,1,1
+"@@ -36,7 +36,7 @@ public class AzDBTestUtility {
+ 
+     public EmbeddedH2BasicDataSource() {
+       super();
+-      final String url = ""jdbc:h2:mem:test"";
++      final String url = ""jdbc:h2:mem:test;IGNORECASE=TRUE"";
+       setDriverClassName(""org.h2.Driver"");
+       setUrl(url);
+     }",Does H2 DB not use the DB schema definition files?,java,1,1,1
+"@@ -318,7 +318,14 @@ public class ExecutionControllerUtils {
+       jobLinkUrl = url.toString();
+     } else {
+       // If RM job link is invalid or has expired, fetch the job link from JHS or SHS.
+-      if (exFlow.getExecutableNode(jobId).getType().equals(SPARK_JOB_TYPE)) {
++      final ExecutableNode node = exFlow.getExecutableNodePath(jobId);
++      if (node == null) {
++        logger.error(
++            ""Invalid job link. Job "" + jobId + "" doesn't exist in "" + exFlow.getExecutionId());
++        return null;
++      }
++
++      if (node.getType().equals(SPARK_JOB_TYPE)) {
+         jobLinkUrl =
+             azkProps.get(ConfigurationKeys.SPARK_HISTORY_SERVER_JOB_URL).replace
+                 (APPLICATION_ID, applicationId);",In which scenario this is a possibility?,java,1,0,1
+"@@ -73,7 +73,7 @@ public interface RuneLiteConfig extends Config
+ 	)
+ 	default boolean enablePlugins()
+ 	{
+-		return true;
++		return false;
+ 	}
+ 
+ 	@ConfigItem(","Not needed, just make hide externals by default in plugin sorter.",java,1,1,1
+"@@ -57,7 +57,8 @@ public class BaselineErrorProneExtension {
+             ""ArrayEquals"",
+             ""MissingOverride"",
+             ""UnnecessaryParentheses"",
+-            ""PreferJavaTimeOverload"");
++            ""PreferJavaTimeOverload"",
++            ""UnnecessaryLambda"");
+ 
+     private final ListProperty<String> patchChecks;
+ ","I recall this creating code that didn't compile, might want to test it on something large and internal (or atlas) first",java,1,1,1
+"@@ -89,9 +89,11 @@ public enum Kind {
+   TS_CONFIG(""ts_config"", LanguageClass.TYPESCRIPT, RuleType.BINARY),
+   DART_PROTO_LIBRARY(""dart_proto_library"", LanguageClass.DART, RuleType.LIBRARY),
+   DART_LIBRARY(""_dart_library"", LanguageClass.DART, RuleType.LIBRARY),
+-  KOTLIN_LIBRARY(""kotlin_library"", LanguageClass.KOTLIN, RuleType.LIBRARY),
+-  KOTLIN_BINARY(""kotlin_binary"", LanguageClass.KOTLIN, RuleType.BINARY),
+-  KOTLIN_TEST(""kotlin_test"", LanguageClass.KOTLIN, RuleType.TEST),
++  KT_JVM_LIBRARY(""kt_jvm_library"", LanguageClass.KOTLIN, RuleType.LIBRARY),
++  KT_JVM_BINARY(""kt_jvm_binary"", LanguageClass.KOTLIN, RuleType.BINARY),
++  KT_JVM_TEST(""kt_jvm_test"", LanguageClass.KOTLIN, RuleType.TEST),
++  KT_JVM_IMPORT(""kt_jvm_import"", LanguageClass.KOTLIN, RuleType.UNKNOWN),
++  KOTLIN_STDLIB(""kotlin_stdlib"", LanguageClass.KOTLIN, RuleType.UNKNOWN),
+ 
+   // any rule exposing java_common.provider which isn't specifically recognized
+   GENERIC_JAVA_PROVIDER(""generic_java"", LanguageClass.JAVA, RuleType.UNKNOWN),",Why not `RuleType.LIBRARY`?,java,1,1,1
+"@@ -148,11 +148,11 @@ public class UiSetupWizardImplementation implements SetupWizard {
+     @Override
+     public Void presentation(String programName, String programEditor, String applicationHomepage,
+             String scriptorName) {
+-        final String htmlToShow = ""<body>"" + tr(""This wizard will help you install {0} on your computer"", programName)
+-                + "".<br><br>"" + tr(""This program was created by: {0}"", programEditor) + ""<br><br>""
++        final String htmlToShow = ""<body>"" + tr(""Installation Wizard for {0}"", programName)
++                + "".<br><br>"" + tr(""Installation Script by {0}"", programEditor) + ""<br><br>""
+                 + tr(""For more information about this program, visit:"")
+                 + String.format(""<br><a href=\""%1$s\"">%1$s</a><br><br>"", applicationHomepage)
+-                + tr(""This installation program is provided by: {0}"", scriptorName) + ""<br><br>"" + ""<br><br>""
++                + tr(""Installation Script by {0}"", scriptorName) + ""<br><br>"" + ""<br><br>""
+                 + tr(""{0} will be installed in: {1}"", programName, applicationUserRoot) + ""<br><br>""
+                 + tr(""{0} is not responsible for anything that might happen as a result of using these scripts."",
+                         applicationName)",Why uppercase wizard and script?,java,1,1,1
+"@@ -200,4 +200,17 @@ public interface ProjectLoader {
+       throws ProjectManagerException;
+ 
+   void updateProjectSettings(Project project) throws ProjectManagerException;
++
++  /**
++   * Uploads flow file.
++   */
++  void uploadFlowFile(int projectId, int projectVersion, int flowVersion, File flowFile)
++      throws ProjectManagerException;
++
++  /**
++   * Gets flow file that's uploaded.
++   */
++  File getUploadedFlowFile(int projectId, int projectVersion, int flowVersion, String flowName)
++      throws ProjectManagerException;
++
+ }",same here about the argument order.,java,1,0,1
+"@@ -25,6 +25,7 @@ import org.jasig.cas.client.util.CommonUtils;
+ 
+ import org.springframework.beans.factory.InitializingBean;
+ import org.springframework.security.cas.ServiceProperties;
++import org.springframework.security.cas.authentication.TriggerCasGatewayException;
+ import org.springframework.security.core.AuthenticationException;
+ import org.springframework.security.web.AuthenticationEntryPoint;
+ import org.springframework.util.Assert;","Among other tangles, this introduces a tangle between between `org.springframework.security.cas.authentication` and `org.springframework.security.cas.web`. In general, authentication package should not rely on web.",java,1,1,1
+"@@ -115,7 +115,10 @@ class RemoveSnapshots implements ExpireSnapshots {
+         .onlyRetryOn(CommitFailedException.class)
+         .run(item -> {
+           TableMetadata updated = internalApply();
+-          ops.commit(base, updated);
++          // only commit the updated metadata if at least one snapshot was removed
++          if (updated.snapshots().size() != base.snapshots().size()) {
++            ops.commit(base, updated);
++          }
+         });
+ 
+     LOG.info(""Committed snapshot changes; cleaning up expired manifests and data files."");",Would it be more precise to check for `if (updated.snapshots().size() < base.snapshots().size())`?,java,1,1,1
+"@@ -34,6 +34,8 @@ public class CommonMetrics {
+   private final MetricsManager metricsManager;
+   private Meter dbConnectionMeter;
+   private Meter flowFailMeter;
++  private Meter dispatchFailMeter;
++  private Meter dispatchSuccessMeter;
+ 
+   @Inject
+   public CommonMetrics(final MetricsManager metricsManager) {","I think we should have a better way of organizing metrics. Keeping all metrics together in one class seems like putting apples and oranges in one basket. Also, such organization of metrics hints that metrics events can be declared from anywhere else in the code. However, dispatch fail / success should only be controlled by the `ExecutorManager`. Thoughts?",java,1,1,1
+"@@ -249,7 +249,9 @@ public class ExecutionControllerUtils {
+       exFlow.setEndTime(time);
+     }
+ 
+-    exFlow.setStatus(Status.FAILED);
++    if (exFlow.getStatus() != Status.POD_FAILED) {
++      exFlow.setStatus(Status.FAILED);
++    }
+   }
+ 
+   /**",Perhaps make this check more generic and switch the status to FAILED if the previous status is already a final one ? Something like `if (!isStatusFinised(exFlow.getStatus())`,java,1,1,1
+"@@ -250,7 +250,8 @@ public class PythonGapicContext extends GapicContext {
+ 
+     // parameter types
+     contentBuilder.append(""Args:\n"");
+-    for (Field field : this.messages().flattenedFields(method.getInputType())) {
++    for (Field field :
++        removePageTokenFromFields(this.messages().flattenedFields(method.getInputType()), config)) {
+       String name = pythonCommon.wrapIfKeywordOrBuiltIn(field.getSimpleName());
+       if (config.isPageStreaming()
+           && field.equals((config.getPageStreaming().getPageSizeField()))) {",I don't think the call to flattenedFields is necessary here,java,1,1,1
+"@@ -186,6 +186,9 @@ public class TestHiveShell {
+     // Tez configuration
+     hiveConf.setBoolean(""tez.local.mode"", true);
+ 
++    // Disable vectorization for HiveIcebergInputFormat
++    hiveConf.setBoolVar(HiveConf.ConfVars.HIVE_VECTORIZATION_ENABLED, false);
++
+     return hiveConf;
+   }
+ }","I think this is fine, but I'm curious: do we plan to add vectorized writes? Or is this not something that we think is important?",java,1,1,1
+"@@ -71,9 +71,9 @@ public class IDPRequestHandler {
+         this.spConfig = spConfig;
+         this.userAccount = userAccount;
+         basicValidation();
+-        loginUrl = spConfig.getLoginUrl();
++        loginUrl = userAccount.getLoginServer();
+         if (TextUtils.isEmpty(loginUrl)) {
+-            loginUrl = userAccount.getLoginServer();
++            loginUrl = spConfig.getLoginUrl();
+         }
+         buildRestClient();
+     }",This one fixes a corner case bug when you swizzle out to the IDP and then decide to change login hosts.,java,1,1,1
+"@@ -44,12 +44,10 @@ import org.tikv.kvproto.Metapb.Store;
+ public class Snapshot {
+   private final TiTimestamp timestamp;
+   private final TiSession session;
+-  private final TiConfiguration conf;
+ 
+   public Snapshot(TiTimestamp timestamp, TiSession session) {
+     this.timestamp = timestamp;
+     this.session = session;
+-    this.conf = session.getConf();
+   }
+ 
+   public TiSession getSession() {",why delete this conf?,java,1,0,1
+"@@ -142,12 +142,9 @@ namespace AutoRest.Core.Model
+         /// <returns>true if the specified object is functionally equal to this object; otherwise, false.</returns>
+         public virtual bool StructurallyEquals(IModelType other)
+         {
+-            if (ReferenceEquals(other, null))
+-            {
+-                return false;
+-            }
+-
+-            return GetType() == other.GetType() && Name.Equals(other.Name);
++            var ta = JsonConvert.SerializeObject(this);
++            var tb = JsonConvert.SerializeObject(other);
++            return ta == tb;
+         }
+ 
+         /// <summary>","Ouch! Some considerations: - this uses the default serialization rules where circular references will throw an exception. We overcome this in the `CodeModel` stuff by generating `$id` and `$ref` fields to allow multiple references to the same object to resolve correctly. - even if you used the serializer settings, two structurally identical objects may not be literally identical, if dictionaries are involved, and the references aren't generated in exactly the same order (since, the first reference shows the entire object, and the second will get a `$ref` to the `$id` of the first.)",java,1,1,0
+"@@ -91,11 +91,7 @@ class MetricsHttpService implements MetricsService {
+     router.route(""/"").method(HttpMethod.GET).handler(this::handleEmptyRequest);
+ 
+     // Endpoint for Prometheus metrics monitoring.
+-    router
+-        .route(""/metrics"")
+-        .method(HttpMethod.GET)
+-        .produces(TextFormat.CONTENT_TYPE_004)
+-        .handler(this::metricsRequest);
++    router.route(""/metrics"").method(HttpMethod.GET).handler(this::metricsRequest);
+ 
+     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
+     httpServer","Maybe just check for `""text/plain""` instead of completely dropping Prometheus' very specific version?",java,1,1,1
+"@@ -47,6 +47,7 @@ public class SnapshotSummary {
+   public static final String PUBLISHED_WAP_ID_PROP = ""published-wap-id"";
+   public static final String SOURCE_SNAPSHOT_ID_PROP = ""source-snapshot-id"";
+   public static final String REPLACE_PARTITIONS_PROP = ""replace-partitions"";
++  public static final String EXTRA_METADATA_PREFIX = ""extra-metadata."";
+ 
+   private SnapshotSummary() {
+   }",happy to change if a different prefix string would be more suitable,java,1,1,1
+"@@ -69,8 +69,14 @@ public class LinkedHashMapTest extends AbstractMapTest {
+ 
+     @Test
+     public void shouldKeepOrder() {
+-        CharSeq actual = LinkedHashMap.<Integer, Character> empty().put(3, 'a').put(2, 'b').put(1, 'c').foldLeft(CharSeq.empty(), (s, t) -> s.append(t._2));
+-        assertThat(actual).isEqualTo(CharSeq.of(""abc""));
++        List<Character> actual = LinkedHashMap.<Integer, Character> empty().put(3, 'a').put(2, 'b').put(1, 'c').foldLeft(List.empty(), (s, t) -> s.append(t._2));
++        Assertions.assertThat(actual).isEqualTo(List.of('a', 'b', 'c'));
++    }
++
++    @Test
++    public void shouldKeepValuesOrder() {
++        List<Character> actual = LinkedHashMap.<Integer, Character> empty().put(3, 'a').put(2, 'b').put(1, 'c').values().foldLeft(List.empty(), List::append);
++        Assertions.assertThat(actual).isEqualTo(List.of('a', 'b', 'c'));
+     }
+ 
+     // -- static narrow","It was a big mistake to override `assers*` methods. They don't check ordering of iterables. It is sufficient for `Map`, but very dangerous for other cases.",java,1,1,1
+"@@ -29,8 +29,11 @@ import org.apache.solr.common.params.CommonParams;
+ import org.apache.solr.common.params.ModifiableSolrParams;
+ import org.apache.solr.common.util.NamedList;
+ import org.apache.solr.SolrTestCaseJ4.SuppressPointFields;
++import org.junit.Assert;
+ import org.junit.Test;
+ 
++import static org.hamcrest.CoreMatchers.containsString;
++
+ /**
+  * TODO? perhaps use:
+  *  http://docs.codehaus.org/display/JETTY/ServletTester",I think we don't need this import. All test cases extend `Assert`,java,1,1,1

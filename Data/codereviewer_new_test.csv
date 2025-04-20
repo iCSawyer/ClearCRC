@@ -1,0 +1,1957 @@
+patch,msg,language,relevance,informativeness,expression
+"@@ -2,6 +2,7 @@
+   free (cwd);
+   }
+   // LEAK : not always in heap free (prj_name);
+ + free(core->prj->path);
+   core->prj->path = prj_dir;
+   if (scr_null) {
+   r_config_set_b (core->config, ""scr.null"", true);",maybe good to free (core->prj->path) before overwriting the field?,c,1,1,1
+"@@ -2,7 +2,10 @@
+  newfd = ctx.result;
+  
+  #ifdef MS_WINDOWS
+ -#ifdef MS_WINDOWS_DESKTOP
+ +#if defined(MS_WINDOWS_APP) || defined(MS_WINDOWS_DESKTOP) || defined(MS_WINDOWS_SYSTEM)
+ +#ifndef HANDLE_FLAG_INHERIT
+ +#define HANDLE_FLAG_INHERIT 0x00000001
+ +#endif
+  if (!SetHandleInformation((HANDLE)newfd, HANDLE_FLAG_INHERIT, 0)) {
+  PyErr_SetFromWindowsErr(0);
+  SOCKETCLOSE(newfd);","In 10.0.19041, `SetHandleInformation()` is available for `APP`, `SYSTEM`, and `GAMES`. Your experiment with modifying `HANDLE_FLAG_INHERIT` on Xbox failed with `ERROR_ACCESS_DENIED`, right? In that case, I suggest supporting everything but `GAMES`.
+ 
+ 
+ 
+ ```suggestion
+ 
+ #if defined(MS_WINDOWS_APP) || defined(MS_WINDOWS_DESKTOP) || defined(MS_WINDOWS_SYSTEM)
+ 
+ #ifndef HANDLE_FLAG_INHERIT
+ 
+ #define HANDLE_FLAG_INHERIT 0x00000001
+ 
+ #endif
+ 
+ ```",c,1,1,1
+"@@ -2,6 +2,6 @@
+  iov.iov_len = in->size;
+  int written = s2n_record_writev(conn, content_type, &iov, 1, 0, in->size);
+  RESULT_GUARD_POSIX(written);
+ - RESULT_ENSURE(written == (int) in->size, S2N_ERR_FRAGMENT_LENGTH_TOO_LARGE);
+ + RESULT_ENSURE((uint32_t) written == in->size, S2N_ERR_FRAGMENT_LENGTH_TOO_LARGE);
+  return S2N_RESULT_OK;
+  }","better to cast to the unsigned value since we've already validated that it's non-negative from the line above
+ 
+ 
+ 
+ ```suggestion
+ 
+  RESULT_ENSURE((uint32_t) written == in->size, S2N_ERR_FRAGMENT_LENGTH_TOO_LARGE);
+ 
+ ```",c,1,1,1
+"@@ -2,7 +2,8 @@
+   break;
+   }
+   bool fullGraph = true;
+ - if (input[2] == ' ' && strcmp(input + 3, """")) {
+ + const char *match = r_str_trim_head_ro (input + 2);
+ + if (*match) {
+   const char *match = r_str_trim_head_ro (input + 3);
+   r_list_foreach (obj->classes, iter, cls) {
+    if (cls->super && strstr (cls->super, match)) {","what's exactly what you wanna check here? if there's a space and not a null byte after it?
+ 
+ ```suggestion
+ 
+ if (input[2] == ' ' && input[3]) {
+ 
+ ```
+ 
+ 
+ 
+ then this code is simpler and more readable, but what if there are many spaces? you shoul dbetter do something like this:
+ 
+ 
+ 
+ ```suggestion
+ 
+ const char *match = r_str_trim_head_ro (input + 2);
+ 
+ if (*match) {
+ 
+ ```",c,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  // #define VEC64(n) insn->detail->arm64.operands[n].vess
+  #define VEC64_APPEND(sb, n, i) vector64_append (sb, insn, n, i)
+ -#define VEC64_MASK(sh, sz) (bitmask_by_width[63]^(bitmask_by_width[sz-1]<<sh))
+ +#define VEC64_MASK(sh, sz) (bitmask_by_width[63] ^ (bitmask_by_width[sz - 1] << sh))
+  
+  static void vector64_append(RStrBuf *sb, Instruction *insn, int n, int i) {
+   InstructionOperand op = INSOP64 (n);","```suggestion
+ 
+ #define VEC64_MASK(sh, sz) (bitmask_by_width[63] ^ (bitmask_by_width[sz - 1] << sh))
+ 
+ ```",c,1,0,0
+"@@ -2,7 +2,7 @@
+   RCoreSymCacheElementSegment *seg = &result->segments[i];
+   seg->paddr = seg->vaddr = r_read_le64 (cursor);
+   cursor += 8;
+ - if (cursor + 8 >= end) {
+ + if (cursor + 8 > end) {
+   break;
+   }
+   seg->size = seg->vsize = r_read_le64 (cursor);","```suggestion
+ 
+ if (cursor + 8 > end) {
+ 
+ ```",c,1,0,0
+"@@ -2,6 +2,7 @@
+  static inline int
+  compare_handler(PyObject *func, PyObject *dfl_ign_handler)
+  {
+ + // See https://github.com/python/cpython/pull/102399
+  if (func == NULL || dfl_ign_handler == NULL) {
+  return 0;
+  }",It's not really clear to me _why_ this situation could arise but it is a valid check regardless.,c,0,0,0
+"@@ -2,7 +2,7 @@
+  GUARD_EXIT(renegotiate(conn, sockfd, reneg_ctx.wait), ""Renegotiation failed"");
+  }
+  
+ - wait_for_shutdown(conn, sockfd);
+ + GUARD_EXIT(wait_for_shutdown(conn, sockfd), ""Error closing connection"");
+  
+  GUARD_EXIT(s2n_connection_free(conn), ""Error freeing connection"");","Since `wait_for_event` can return an error, should this `wait_for_shutdown` have a GUARD_EXIT? Or should it still continue here if that happens?",c,1,1,1
+"@@ -2,7 +2,7 @@
+   const char *match;
+   RListIter *iter;
+   RAnalFunction *f;
+ - PJ *pj = pj_new ();
+ + PJ *pj = core_pj_new ();
+  
+   if (!pj) {
+   return;","Better use the corepj.new() if you have access to the core instance. This way the user have the ability to configure some options like indent, colors or how to represent 64bit numbers if they want",c,1,1,1
+"@@ -2,7 +2,7 @@
+   R_LOG_ERROR (""unknown operand size: %d"", gop.insn->detail->x86.operands[0].size);
+   val = 256;
+   }
+ - // experimental simplified expression
+ + // OLD: esilprintf (op, ""0,%s,!,!,?{,1,%s,-,%s,<<,0x%""PFMT64x"",&,!,!,^,},%s,%s,$z,zf,:=,$p,pf,:=,%d,$s,sf,:=,cf,="", src, src, dst, val, src, dst2, bitsize - 1);
+   esilprintf (op,
+   ""%s,0x%""PFMT64x"",&,POP,$z,cf,:=,""
+   ""%s,%s,<<=,""","```suggestion
+ 
+ // OLD: esilprintf (op, ""0,%s,!,!,?{,1,%s,-,%s,<<,0x%""PFMT64x"",&,!,!,^,},%s,%s,$z,zf,:=,$p,pf,:=,%d,$s,sf,:=,cf,="", src, src, dst, val, src, dst2, bitsize - 1);
+ 
+ ```",c,1,0,0
+"@@ -2,12 +2,15 @@
+   case WORK_QUEUE_RESULT_TASK_MAX_RUN_TIME:
+   case WORK_QUEUE_RESULT_DISK_ALLOC_FULL:
+   case WORK_QUEUE_RESULT_OUTPUT_TRANSFER_ERROR:
+ - if (t->result == WORK_QUEUE_RESULT_SUCCESS)
+ + if (t->result == WORK_QUEUE_RESULT_SUCCESS) {
+   success = 1;
+ - else if (t->result == WORK_QUEUE_RESULT_RESOURCE_EXHAUSTION)
+ + }
+ + else if (t->result == WORK_QUEUE_RESULT_RESOURCE_EXHAUSTION) {
+   success = 0;
+ - else
+ + }
+ + else {
+   success = -1;
+ + }
+   if(category_bucketing_accumulate_summary(c, t->resources_measured, q->current_max_worker, t->taskid, success)) {
+   write_transaction_category(q, c);
+   }",Add braces to all these ifs.,c,1,1,1
+"@@ -2,9 +2,9 @@
+  }
+  if (types_len) {
+  for (i=0; i<types_len; i++){
+ -  if (types[i].key != NULL) {
+ + if (types[i].key != NULL) {
+  flb_free(types[i].key);
+ -  }
+ + }
+  }
+  flb_free(types);
+  }",Could you check indentation level ?,c,1,1,1
+"@@ -2,7 +2,7 @@
+  /* len is set by EVP_EncryptUpdate and checked post operation */
+  int len = 0;
+  POSIX_GUARD_OSSL(EVP_EncryptUpdate(key->evp_cipher_ctx, out->data, &len, in->data, in->size), S2N_ERR_ENCRYPT);
+ - S2N_ERROR_IF(len != (int) in->size, S2N_ERR_ENCRYPT);
+ + POSIX_ENSURE((int64_t) len == (int64_t) in->size, S2N_ERR_ENCRYPT);
+  
+  return 0;
+  }","```suggestion
+ 
+  POSIX_ENSURE((int64_t) len == (int64_t) in->size, S2N_ERR_ENCRYPT);
+ 
+ ```",c,1,0,0
+"@@ -2,21 +2,12 @@
+  GCancellable *cancellable,
+  GError **error)
+  {
+ - g_autoptr(GFile) xmls_dir = NULL;
+ - g_autofree char *appstream_basename = NULL;
+  g_autoptr(GFile) appstream_file = NULL;
+  g_autoptr(GInputStream) xml_in = NULL;
+  
+  *result = NULL;
+ -
+ - appstream_file = g_file_resolve_relative_path (root, ""files/share/swcatalog/xml/flatpak.xml.gz"");
+ - if (!g_file_test (g_file_peek_path (appstream_file), G_FILE_TEST_EXISTS))
+ - {
+ - g_clear_object (&appstream_file);
+ - xmls_dir = g_file_resolve_relative_path (root, ""files/share/app-info/xmls"");
+ - appstream_basename = g_strconcat (name, "".xml.gz"", NULL);
+ - appstream_file = g_file_get_child (xmls_dir, appstream_basename);
+ - }
+ + 
+ + flatpak_appstream_get_xml_path (root, &appstream_file, NULL, name, NULL);
+  
+  xml_in = (GInputStream *) g_file_read (appstream_file, cancellable, NULL);
+  if (xml_in)",As I mentioned in the other PR. This same logic is repeated like 3 times. I think this could be pulled out into a function to just get the correct path in `flatpak-utils.c` perhaps.,c,0,1,1
+"@@ -2,11 +2,12 @@
+   case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+   return 2;
+   case R_ANAL_ARCHINFO_DATA_ALIGN:
+ + {
+   const char *cpu = anal->config->cpu;
+   if (strstr (cpu, ""68030"") || strstr (cpu, ""68040"") || strstr (cpu, ""68060"")) {
+   return 1;
+ - } else {
+ - return 2;
+ + }
+ + return 2;
+   }
+   }
+   return 2;","```suggestion
+ 
+ {
+ 
+ const char *cpu = anal->config->cpu;
+ 
+ ```",c,1,0,0
+"@@ -2,7 +2,7 @@
+  if (!change_pool_->reserve_cache(change_to_add))
+  {
+  logWarning(RTPS_MSG_IN,
+ - IDSTRING ""Reached the specified maximum number samples allowed by this DataReader QoS. Rejecting change for reader: "" <<
+ + IDSTRING ""Reached the maximum number of samples allowed by this reader's QoS. Rejecting change for reader: "" <<
+  m_guid );
+  return false;
+  }","```suggestion
+ 
+  IDSTRING ""Reached the maximum number of samples allowed by this reader's QoS. Rejecting change for reader "" <<
+ 
+ ```",cpp,1,0,0
+"@@ -2,9 +2,9 @@
+  auto normalized_expr = normalize_and_validate(std::move(expr));
+  if (!normalized_expr) {
+  self->quit(caf::make_error(ec::format_error,
+ - fmt::format(""pivoter failed to normalize and ""
+ + fmt::format(""{} failed to normalize and ""
+  ""validate expression: {}"",
+ - normalized_expr.error())));
+ + *self, normalized_expr.error())));
+  return {};
+  }
+  expr = *normalized_expr;",Generally you can replace the actor name with `{}` and then provide `*self` to the formatter to avoid the duplication. This also applies to the other two instances of this.,cpp,1,1,1
+"@@ -2,9 +2,9 @@
+   inst->SetCharges(charges);
+  
+   if (item->RecastDelay) {
+ - if (item->RecastType != -1 && timestamps.count(item->RecastType)) {
+ + if (item->RecastType != RECAST_TYPE_UNLINKED_ITEM && timestamps.count(item->RecastType)) {
+   inst->SetRecastTimestamp(timestamps.at(item->RecastType));
+ - } else if (item->RecastType == -1 && timestamps.count(item->ID)) {
+ + } else if (item->RecastType == RECAST_TYPE_UNLINKED_ITEM && timestamps.count(item->ID)) {
+   inst->SetRecastTimestamp(timestamps.at(item->ID));
+   }
+   else {",Another spot for constant,cpp,0,0,0
+"@@ -2,21 +2,6 @@
+  return resultShape;
+  }
+  
+ -// Converts OpFoldResults to int64_t shape entries, unconditionally mapping all
+ -// Value's to kDynamic, even if they are arith.constant values.
+ -static SmallVector<int64_t>
+ -asShapeWithAnyValueAsDynamic(ArrayRef<OpFoldResult> ofrs) {
+ - SmallVector<int64_t> result;
+ - for (auto o : ofrs) {
+ - // Have to do this first, as getConstantIntValue special-cases constants.
+ - if (o.dyn_cast<Value>())
+ - result.push_back(ShapedType::kDynamic);
+ - else
+ - result.push_back(getConstantIntValue(o).value_or(ShapedType::kDynamic));
+ - }
+ - return result;
+ -}
+ -
+  SmallVector<OpFoldResult> PackOp::getResultShape(
+  OpBuilder &builder, Location loc, ArrayRef<OpFoldResult> sourceDims,
+  ArrayRef<OpFoldResult> innerTileSizes, ArrayRef<int64_t> innerDimsPos,",Might be worth moving this into https://github.com/iree-org/iree/blob/main/llvm-external-projects/iree-dialects/include/iree-dialects/Dialect/LinalgExt/Utils/Utils.h or in MLIR file (`StaticValueUtils.h`),cpp,1,1,1
+"@@ -2,22 +2,14 @@
+  namespace energyplus {
+  
+  boost::optional<IdfObject> ForwardTranslator::translateOutputControlTableStyle(OutputControlTableStyle& modelObject) {
+ - IdfObject idfObject(openstudio::IddObjectType::OutputControl_Table_Style);
+  
+ - m_idfObjects.push_back(idfObject);
+ + IdfObject idfObject = createAndRegisterIdfObject(openstudio::IddObjectType::OutputControl_Table_Style);
+  
+ - OptionalString s = modelObject.name();
+ - if (s) {
+ - idfObject.setName(*s);
+ - }
+ + idfObject.setString(OutputControl_Table_StyleFields::ColumnSeparator, modelObject.columnSeparator());
+  
+ - std::string columnSeparator = modelObject.columnSeparator();
+ - idfObject.setString(OutputControl_Table_StyleFields::ColumnSeparator, columnSeparator);
+ + idfObject.setString(OutputControl_Table_StyleFields::UnitConversion, modelObject.unitConversion());
+  
+ - std::string unitConversion = modelObject.unitConversion();
+ - idfObject.setString(OutputControl_Table_StyleFields::UnitConversion, unitConversion);
+ -
+ - return boost::optional<IdfObject>(idfObject);
+ + return idfObject;
+  }
+  
+  } // namespace energyplus","```suggestion
+ 
+  idfObject.setString(OutputControl_Table_StyleFields::ColumnSeparator, modelObject.columnSeparator());
+ 
+ ```",cpp,1,0,0
+"@@ -2,7 +2,7 @@
+   chance += itembonuses.FrenziedDevastation + spellbonuses.FrenziedDevastation + aabonuses.FrenziedDevastation;
+  
+   //Crtical Hit Calculation pathway
+ - if (chance > 0 || IsOfClientBot() && GetClass() == WIZARD && GetLevel() >= RuleI(Spells, WizCritLevel)) {
+ + if (chance > 0 || (IsOfClientBot() && GetClass() == WIZARD && GetLevel() >= RuleI(Spells, WizCritLevel))) {
+  
+   int32 ratio = RuleI(Spells, BaseCritRatio); //Critical modifier is applied from spell effects only. Keep at 100 for live like criticals.",Removed too many parentheses here.,cpp,1,1,1
+"@@ -2,7 +2,7 @@
+  if (strncmp(p, ""NaN"", 3) == 0) {
+  if (endptr)
+  *endptr = const_cast<char *>(p + 3);
+ - return NAN;
+ + return std::numeric_limits<double>::quiet_NaN();
+  }
+  
+  /* non-numeric? */","```suggestion
+ 
+  return std::numeric_limits<double>::quiet_NaN();
+ 
+ ```",cpp,1,0,0
+"@@ -2,11 +2,6 @@
+  
+  ASSERT_TRUE(test_region_stack.empty());
+  
+ - // Unnamed guard! Profile region is popped at the end of the statement.
+ - Kokkos::Profiling::ScopedProfileRegion(""bug"");
+ -
+ - ASSERT_TRUE(test_region_stack.empty());
+ -
+  {
+  std::string outer_identifier = ""outer"";
+  Kokkos::Profiling::ScopedProfileRegion guard_outer(outer_identifier);",Actually you should keep it open until the end of the file,cpp,1,1,1
+"@@ -2,7 +2,7 @@
+  auto serialized_state = state.save();
+  REQUIRE_NOERROR(serialized_state);
+  vast::plugins::web::authenticator_state recovered_state;
+ - recovered_state.initialize_from(*serialized_state);
+ + CHECK_EQUAL(recovered_state.initialize_from(*serialized_state), caf::error{});
+  CHECK_EQUAL(state.authenticate(*token), true);
+  CHECK_EQUAL(state.authenticate(""Yog-Sothoth""), false);
+  }","Should this be a `CHECK_EQUAL(..., caf::error{})` instead so you can actually see what error it was in case one is returned?",cpp,1,1,1
+"@@ -2,7 +2,7 @@
+  , locators_entry_(loc_alloc.max_unicast_locators, loc_alloc.max_multicast_locators)
+  , is_datasharing_writer_(false)
+  , received_at_least_one_heartbeat_(false)
+ - , state_(StateCode::IDLE)
+ + , state_(StateCode::STOPPED)
+  {
+  //Create Events
+  ResourceEvent& event_manager = reader_->getRTPSParticipant()->getEventResource();","```suggestion
+ 
+  , state_(StateCode::STOPPED)
+ 
+ ```",cpp,1,0,0
+"@@ -2,11 +2,6 @@
+  {
+  for (auto& topologyHandlerList : m_topologyHandlerListPerElement)
+  {
+ - std::for_each(topologyHandlerList.begin(), topologyHandlerList.end(), [](TopologyHandler* topoHandler) 
+ - {
+ - topoHandler = nullptr;
+ - });
+ -
+  topologyHandlerList.clear();
+  }","I am not sure this is doing what you think. `topoHandler` is a copy, not a reference",cpp,1,1,1
+"@@ -2,7 +2,7 @@
+  const char* getModuleComponentList()
+  {
+  /// string containing the names of the classes provided by the plugin
+ - static std::string classes = core::ObjectFactory::getInstance()->listClassesFromTarget(sofa_tostring(SOFA_TARGET));
+ + static std::string classes = core::ObjectFactory::getInstance()->listClassesFromTarget(sofa_tostring(MODULE_NAME));
+  return classes.c_str();
+  }
+  } // namespace sofa::component::animationloop","I think the constexpr var `MODULE_NAME` (which is defined for each module normally, and in its own namespace) would be better than to use the SOFA_TARGET preproc macro",cpp,1,1,1
+"@@ -2,7 +2,7 @@
+   }
+  
+   // Character does not have the required skill.
+ - if(spec.skill_needed > 0 && user->GetSkill(spec.tradeskill) < spec.skill_needed ) {
+ + if (spec.skill_needed > 0 && user->GetSkill(spec.tradeskill) < spec.skill_needed) {
+   // Notify client.
+   user->Message(Chat::Red, ""You are not skilled enough."");
+   user->QueuePacket(outapp);",Is there no string ID for this?,cpp,0,0,1
+"@@ -2,7 +2,7 @@
+  Histogram1D spec(initializedHistogram.xMode(), initializedHistogram.yMode());
+  spec.setHistogram(initializedHistogram);
+  std::transform(data.begin(), data.end(), data.begin(),
+ - [spec](const auto &) { return std::move(std::make_unique<Histogram1D>(spec)); });
+ + [&spec](const auto &) { return std::move(std::make_unique<Histogram1D>(spec)); });
+  
+  // Add axes that reference the data
+  m_axes.resize(2);",Capture `spec` by reference.,cpp,1,0,1
+"@@ -2,7 +2,7 @@
+  // transform plugin API
+  [[nodiscard]] caf::expected<std::unique_ptr<transform_step>>
+  make_transform_step(const record& options) const override {
+ - if (!options.contains(""fields"") && !options.contains(""schemas""))
+ + if (!(options.contains(""fields"") || options.contains(""schemas"")))
+  return caf::make_error(ec::invalid_configuration,
+  ""key 'fields' or 'schemas' is missing in ""
+  ""configuration for drop step"");","```suggestion
+ 
+  if (!(options.contains(""fields"") || options.contains(""schemas"")))
+ 
+ ```
+ 
+ 
+ 
+ Nit, but more idiomatic.",cpp,1,1,1
+"@@ -2,6 +2,19 @@
+  @""file $$"");
+  }
+  
+ + [Fact]
+ + public async Task TestAfterFile2()
+ + {
+ + await VerifyKeywordAsync(SourceCodeKind.Regular,
+ +@""file $$
+ +
+ +class C
+ +{
+ +}
+ +"");
+ + }
+ +
+ +
+  [Fact]
+  public async Task TestNotAfterStaticInternal()
+  => await VerifyAbsenceAsync(@""static internal $$"");","I'm thinking of a test case like this:
+ 
+ 
+ 
+ ```csharp
+ 
+ 
+ 
+ file $$
+ 
+ 
+ 
+ class C
+ 
+ {
+ 
+ }
+ 
+ ```
+ 
+ 
+ 
+ Does it work currently? Is it hard to support?",csharp,1,1,1
+"@@ -2,16 +2,10 @@
+  // Check to see if we should enable the event listener.
+  string logDirectory = Environment.GetEnvironmentVariable(PerfLogDirEnvVar);
+  
+ - if (!string.IsNullOrEmpty(logDirectory))
+ + if (!string.IsNullOrEmpty(logDirectory) && Directory.CreateDirectory(logDirectory).Exists)
+  {
+ - if (Directory.CreateDirectory(logDirectory).Exists)
+ - {
+ - eventListener = new PerformanceLogEventListener();
+ - eventListener.Initialize(logDirectory);
+ - }
+ -
+ - // Delete env var so new starting processes will not duplicate Event listening
+ - Environment.SetEnvironmentVariable(PerfLogDirEnvVar, null);
+ + eventListener = new PerformanceLogEventListener();
+ + eventListener.Initialize(logDirectory);
+  }
+  }
+  catch",Do you have to reset this at the end of the build?,csharp,1,1,1
+"@@ -2,7 +2,7 @@
+  var result = GetLogicalCoreCountOnWindows();
+  if (result != -1)
+  {
+ - return result;
+ + numberOfCpus = result;
+  }
+  }
+  #endif",Why this change? I generally prefer the single return when using this pattern.,csharp,1,1,1
+"@@ -2,7 +2,7 @@
+  _exportJobConfiguration.NumberOfPagesPerCommit,
+  request.ContainerName,
+  request.Parallel,
+ - smart: _contextAccessor?.RequestContext?.AccessControlContext?.ApplyFineGrainedAccessControl == true);
+ + smartRequest: _contextAccessor?.RequestContext?.AccessControlContext?.ApplyFineGrainedAccessControl == true);
+  
+  var outcome = await _fhirOperationDataStore.CreateExportJobAsync(jobRecord, cancellationToken);","Is SMART the default behavior? 
+ 
+ I had the impression that in the worst case, if everything is null, then SMART would be **false**.",csharp,1,1,1
+"@@ -2,8 +2,8 @@
+  {""dotnet_add_imports_on_paste"", new RoamingProfileStorage(""TextEditor.%LANGUAGE%.Specific.AddImportsOnPaste2"")},
+  {""dotnet_always_use_default_symbol_servers"", new RoamingProfileStorage(""TextEditor.AlwaysUseDefaultSymbolServers"")},
+  {""csharp_automatically_insert_block_comment_start_string"", new RoamingProfileStorage(""TextEditor.%LANGUAGE%.Specific.Auto Insert Block Comment Start String"")},
+ - {""csharp_automatically_complete_statement_on_semicolon"", new RoamingProfileStorage(""TextEditor.AutomaticallyCompleteStatementOnSemicolon"")},
+ - {""csharp_automatically_fix_string_contents_on_paste"", new RoamingProfileStorage(""TextEditor.%LANGUAGE%.AutomaticallyFixStringContentsOnPaste"")},
+ + {""csharp_complete_statement_on_semicolon"", new RoamingProfileStorage(""TextEditor.AutomaticallyCompleteStatementOnSemicolon"")},
+ + {""csharp_fix_string_contents_on_paste"", new RoamingProfileStorage(""TextEditor.%LANGUAGE%.AutomaticallyFixStringContentsOnPaste"")},
+  {""visual_basic_automatic_insertion_of_abstract_or_interface_members_enabled"", new RoamingProfileStorage(""TextEditor.%LANGUAGE%.Specific.AutoRequiredMemberInsert"")},
+  {""visual_basic_generate_end_construct"", new RoamingProfileStorage(""TextEditor.%LANGUAGE%.Specific.AutoEndInsert"")},
+  {""dotnet_inheritance_margin_combined_with_indicator_margin"", new RoamingProfileStorage(""TextEditor.InheritanceMarginCombinedWithIndicatorMargin"")},","I'd remove the word ""automatically"" from all the option names that end with `_on_xyz`. Seems superfluous since the it already specifies that action `xyz` will perform the operation",csharp,1,1,1
+"@@ -2,7 +2,7 @@
+  var existsCheck = mode == BuildEnvironmentMode.VisualStudio ? new Func<string, bool>(_ => true) : File.Exists;
+  
+  MSBuildToolsDirectory32 = MSBuildToolsDirectoryRoot;
+ - MSBuildToolsDirectory64 = existsCheck(potentialAmd64FromX86) ? Path.Combine(MSBuildToolsDirectoryRoot, ""amd64"") : null;
+ + MSBuildToolsDirectory64 = existsCheck(potentialAmd64FromX86) ? Path.Combine(MSBuildToolsDirectoryRoot, ""amd64"") : CurrentMSBuildToolsDirectory;
+  MSBuildToolsDirectoryArm64 = existsCheck(potentialARM64FromX86) ? Path.Combine(MSBuildToolsDirectoryRoot, ""arm64"") : null;
+  }",I seem to recall `f => File.Exists(f)` is more performant than `File.Exists`. Don't care that much.,csharp,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  var formParameters = Request.Form
+  .Where(pair => pair.Key != ""__RequestVerificationToken"")
+ - .ToDictionary(p => p.Key, p => p.Value.ToString());
+ + .ToMultiValueDictionary(p => p.Key, p => p.Value.ToString());
+  var controller = nameof(UIPointOfSaleController).TrimEnd(""Controller"", StringComparison.InvariantCulture);
+  var redirectUrl = Request.GetAbsoluteUri(Url.Action(nameof(ViewPointOfSale), controller, new { appId, viewType }));
+  var store = await _appService.GetStore(app);",`ToMultiValueDictionary` is better as there might be multiple form with same key.,csharp,1,1,1
+"@@ -2,10 +2,6 @@
+  }
+  
+  protected override bool IsValidContext(int position, CSharpSyntaxContext context, CancellationToken cancellationToken)
+ - {
+ - var syntaxTree = context.SyntaxTree;
+ - return syntaxTree.IsParamsModifierContext(context.Position, context.LeftToken) ||
+ - syntaxTree.IsPossibleLambdaParameterModifierContext(position, context.LeftToken, cancellationToken);
+ - }
+ + => context.SyntaxTree.IsParamsModifierContext(position, context.LeftToken, cancellationToken);
+  }
+  }",We should fix up IsParamsModifierContext to support lambdas.,csharp,1,1,1
+"@@ -2,12 +2,6 @@
+  this.RedoStack.Clear();
+  this.initialState = null;
+  this.currentState = null;
+ -
+ - if (_trackedSession is not null)
+ - {
+ - _trackedSession.ReplacementTextChanged -= InlineRenameSession_ReplacementTextChanged;
+ - _trackedSession = null;
+ - }
+  }
+  
+  private void UpdateCurrentState(string replacementText, ITextSelection selection, SnapshotSpan activeSpan)",This fix is unrelated. I noticed while debugging and it makes the code safer,csharp,1,1,1
+"@@ -2,7 +2,8 @@
+  {
+  if (File.Exists(document.FilePath))
+  {
+ - var directory = Directory.GetParent(document.FilePath)?.FullName ?? Directory.GetDirectoryRoot(document.FilePath);
+ + var directory = Directory.GetParent(document.FilePath)?.FullName;
+ + Contract.ThrowIfNull(directory);
+  var newDocumentFilePath = Path.Combine(directory, newName);
+  
+  var versionNumber = 1;",same concern here.,csharp,0,0,0
+"@@ -2,9 +2,10 @@
+  {
+  }
+  
+ - exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+ + exception = await Assert.ThrowsAsync<InvalidOperationException>( () =>
+  {
+  using var session = batch.OpenAsyncSession();
+ + return Task.CompletedTask;
+  });
+  
+  mre.Set();",please fix the warning,csharp,0,0,1
+"@@ -2,8 +2,8 @@
+  return expression;
+  }
+  
+ - /*SortRewriter will return null expression if it finds _sort param same as on of filter params.
+ - But in case of chained names we do need to keep it. #94770*/
+ + /*SortRewriter will return null expression if it finds _sort param same as one of filter params.
+ + But in case of chained names we do need to keep it.*/
+  if (visitedExpression == null)
+  {
+  return new ChainedExpression(resourceTypes: expression.ResourceTypes, referenceSearchParameter: expression.ReferenceSearchParameter, targetResourceTypes: expression.TargetResourceTypes, reversed: expression.Reversed, expression: expression);","I would suggest removing the Bug ID #94770 from this comment. 
+ 
+ This Bug ID is only usable in our internal repository :)
+ 
+ From an open-source perspective, this ID is not required :)",csharp,1,1,1
+"@@ -2,6 +2,6 @@
+  /// to on by default, so the storage location was changed to
+  /// TextEditor.%LANGUAGE%.Specific.AddImportsOnPaste2 (note the 2 suffix).
+  /// </summary>
+ - public static readonly PerLanguageOption2<bool> AddImportsOnPaste = new(""dotnet_add_import_on_paste_options_add_imports_on_paste"", defaultValue: true);
+ + public static readonly PerLanguageOption2<bool> AddImportsOnPaste = new(""dotnet_add_imports_on_paste"", defaultValue: true);
+  }
+  }","Very meta question: should the names here be kept to be more ""human readable"" or do we really want the hierarchy like this? Because this could be simplified to just:
+ 
+ 
+ 
+ ```suggestion
+ 
+  public static readonly PerLanguageOption2<bool> AddImportsOnPaste = new(""dotnet_add_imports_on_paste"", defaultValue: true);
+ 
+ ```
+ 
+ 
+ 
+ And that's a bit more human readable.
+ 
+ 
+ 
+ (separately, this is mixing ""import"" as being singular/plural which I could imagine could be a typo or not)",csharp,1,1,1
+"@@ -2,8 +2,7 @@
+  return false;
+  }
+  
+ - if (property.ReturnTypeInfo.GenericTypeArguments.Length != 1
+ - ||
+ + if (property.ReturnTypeInfo.GenericTypeArguments.Length != 1 ||
+  !property.ReturnTypeInfo.GenericTypeArguments[0].IsInstanceOfType(value))
+  {
+  return false;",I'm not sure but.. is this correct form?,csharp,0,0,1
+"@@ -2,11 +2,15 @@
+  }
+  
+  /// <summary>
+ - /// Gets or sets the build parameters.
+ + /// Retrieve the build parameters.
+  /// </summary>
+ + /// <returns></returns>
+  public BuildParameters BuildParameters
+  {
+ - get => _buildParameters; set => throw new NotImplementedException();
+ + get
+ + {
+ + return _buildParameters;
+ + }
+  }
+  
+  /// <summary>",This can be reverted now too,csharp,0,0,1
+"@@ -2,6 +2,7 @@
+   createdAsyncCallback := false
+   scrResults := make([]data.TransactionHandler, 0, len(vmOutput.OutputAccounts)+1)
+   outputAccounts := process.SortVMOutputInsideData(vmOutput)
+ +
+   for _, outAcc := range outputAccounts {
+   tmpCreatedAsyncCallback, scTxs, err := sc.createSmartContractResults(&vmInput.VMInput, vmOutput, outAcc, tx, txHash)
+   if err != nil {",add an empty line after this line?,go,0,1,1
+"@@ -2,13 +2,13 @@
+  )
+  
+  var publicKey []byte = []byte(`-----BEGIN PUBLIC KEY-----
+ -MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwVMaUtQMFtQsRoa2FQd+
+ -17+acMRMqzPsFTJEix7n+tA8ieCAX0lvNBOjVh8lrt/AUe7B3ZJ0HE6v8xuKj9YA
+ -zUqV8R27UmnIxf5TCXFWrt+fnzX31yLjqK4Fd6JmiDheUatd1hG+gkScMAPuj+Xw
+ -4O+V5sMwaVusytVgmehqcVKYrKpDyhBDUEbDRbKKbP4YAHbmNs3AzlGBbQtvc1fi
+ -0ww7oNKs9cZVcCIeNdwbkXmf8pK5zSXqVsmyPyH3Ue8M6JMNGuPGh1fyHRhFdIiD
+ -lxd7LBKSh7BTjbRtG9DEt1dyMnYQDgRVAdpururuK/otowCowr6X/Etnk2NNeXcZ
+ -4QIDAQAB
+ +MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyZmShlU8Z8HdG0IWSZ8r
+ +tSyzyxrXkJjsFUf0Ke7bm/TLtIggRdqOcUF3XEWqQk5RGD5vuq7Rlg1zZqMEBk8N
+ +EZeRhkxyaZW8pLjxwuBUOnXfJew31+gsTNdKZzRjrvPumKr3EtkleuoxNdoatu4E
+ +HrKmR/4Yi71EqAvkhk7ZjQFuF0osSWJMEEGGCSUYQnTEqUzcZSh1BhVpkIkeu8Kk
+ +1wCtptODixvEujgqVe+SrE3UlZjBmPjC/CL+3cYmufpSNgcEJm2mwsdaXp2OPpfn
+ +a0v85XL6i9ote2P+fLZ3wX9EoioHzgdgB7arOxY50QRJO7OyCqpKFKv6lRWTXuSt
+ +hwIDAQAB
+  -----END PUBLIC KEY-----`)
+  
+  var LicenseValidator LicenseValidatorIface",I have to revert this before the merge. This is only for testing purposes in webapp.,go,0,0,1
+"@@ -2,9 +2,10 @@
+   // guarantees in terms of functionality or future support.
+   EnableExperimentalAPI bool `version[26]:""false""`
+  
+ - // DisableLedgerLRUCache disables LRU caches in ledger for testing purpose.
+ - // Note that we turn it on for only testing purpose, not supposed to use it in real production environment.
+ - DisableLedgerLRUCache bool `version[27]:""false"" codec:""-""`
+ + // DisableLedgerLRUCache disables LRU caches in ledger.
+ + // Setting it to TRUE might result in significant performance degradation
+ + // and SHOULD NOT be used for other reasons than testing.
+ + DisableLedgerLRUCache bool `version[27]:""false""`
+  
+   // EnableFollowMode launches the node in ""follower"" mode. This turns off the agreement service,
+   // and APIs related to broadcasting transactions, and enables APIs which can retrieve detailed information",Why not allow running a node that has its LRU cache disabled? Sounds like a good way to do certain kinds of very paranoid node testing,go,1,1,1
+"@@ -2,6 +2,7 @@
+   Param(ws.PathParameter(""appName"", ""identifier of the application."").DataType(""string"").Required(true)).
+   Param(ws.PathParameter(""workflowName"", ""identifier of the workflow"").DataType(""string"")).
+   Param(ws.PathParameter(""record"", ""identifier of the workflow record"").DataType(""string"")).
+ + Param(ws.QueryParameter(""step"", ""resume the workflow with specific step"").DataType(""string"")).
+   Metadata(restfulspec.KeyOpenAPITags, tags).
+   Filter(c.appCheckFilter).
+   Filter(c.WorkflowAPI.workflowCheckFilter).",We should also change the pipeline API.,go,1,0,1
+"@@ -2,7 +2,7 @@
+   w = &notFoundNoCacheResponseWriter{ResponseWriter: w}
+  
+   if path.Base(r.URL.Path) == ""remote_entry.js"" {
+ - w.Header().Set(""Cache-Control"", ""no-cache, max-age=0"")
+ + w.Header().Set(""Cache-Control"", ""no-cache, max-age=31556926, public"")
+   } else {
+   w.Header().Set(""Cache-Control"", ""max-age=31556926, public"")
+   }",Maybe refactor to have a `shouldAvoidCachingAsset` or something like that? It's just one case atm so it may be better as it currently stands in the PR.,go,1,1,1
+"@@ -2,13 +2,13 @@
+  func (n NoHostChecker) Check() ([]*models.IstioCheck, bool) {
+   validations := make([]*models.IstioCheck, 0)
+   valid := true
+ - namespace := n.K8sHTTPRoute.Namespace
+  
+   for k, httpRoute := range n.K8sHTTPRoute.Spec.Rules {
+   for i, ref := range httpRoute.BackendRefs {
+   if ref.Kind == nil || string(*ref.Kind) != ""Service"" {
+   continue
+   }
+ + namespace := n.K8sHTTPRoute.Namespace
+   if ref.Namespace != nil && string(*ref.Namespace) != """" {
+   namespace = string(*ref.Namespace)
+   }","I think it would be better to create a local variable inside the for loop for namespace. 
+ 
+ If we set namespace, and for the next iterations the namespace is not set, it will be compared with the default one. See example (details service do exist in bookinfo namespace): 
+ 
+ 
+ 
+ ![image](https://user-images.githubusercontent.com/49480155/211858483-2a9abc02-79ea-45d1-b2dd-b6f9d1f9de03.png)",go,1,1,1
+"@@ -2,7 +2,8 @@
+  
+  // GetSnapshotDuration will get the duration in seconds of the last snapshot
+  func (ss *snapshotStatistics) GetSnapshotDuration() int64 {
+ - return int64(time.Since(ss.startTime).Truncate(time.Second).Seconds())
+ + duration := time.Since(ss.startTime).Truncate(time.Second)
+ + return int64(duration.Seconds())
+  }
+  
+  // PrintStats will print the stats after the snapshot has finished","There are too many nested func calls.
+ 
+ Please split this in multiple temp variables",go,1,1,1
+"@@ -2,7 +2,7 @@
+  )
+  
+  func LogProgress(msg string, total int, logger *zerolog.Logger) func(currentIndex int) {
+ - logThreshold := float64(0)
+ + logThreshold := float64(10)
+   return func(currentIndex int) {
+   percentage := float64(100)
+   if total > 0 {
+ @@ -10,7 +10,7 @@
+   }
+  
+   // report every 10 percent
+ - if percentage >= logThreshold+10 {
+ + if percentage >= logThreshold {
+   logger.Info().Msgf(""%s completion percentage: %v percent"", msg, int(percentage))
+   logThreshold += 10
+   }","(my bad) if you initialize `logTheshold := float64(10)`, you can skip this `+10` here",go,1,1,1
+"@@ -2,10 +2,10 @@
+   if service == model.ServiceGitlab && resp.StatusCode == http.StatusForbidden && strings.Contains(bodyString, ""Terms of Service"") {
+   url, err := url.Parse(*sso.UserAPIEndpoint)
+   if err != nil {
+ - return nil, """", stateProps, nil, model.NewAppError(""AuthorizeOAuthUser"", ""api.user.authorize_oauth_user.service.app_error"", map[string]any{""Service"": service}, err.Error(), http.StatusInternalServerError)
+ + return nil, """", stateProps, nil, model.NewAppError(""AuthorizeOAuthUser"", model.NoTranslation, """", http.StatusInternalServerError).Wrap(errors.Wrapf(err, ""error parsing %s"", *sso.UserAPIEndpoint))
+   }
+   // Return a nicer error when the user hasn't accepted GitLab's terms of service
+ - return nil, """", stateProps, nil, model.NewAppError(""AuthorizeOAuthUser"", ""oauth.gitlab.tos.error"", map[string]interface{}{""URL"": url.Hostname()}, """", http.StatusBadRequest)
+ + return nil, """", stateProps, nil, model.NewAppError(""AuthorizeOAuthUser"", ""oauth.gitlab.tos.error"", map[string]any{""URL"": url.Hostname()}, """", http.StatusBadRequest)
+   }
+  
+   return nil, """", stateProps, nil, model.NewAppError(""AuthorizeOAuthUser"", ""api.user.authorize_oauth_user.response.app_error"", nil, ""response_body=""+bodyString, http.StatusInternalServerError)",Is there a need to parse this again? For simplicity we could just pass the full URL.,go,1,1,1
+"@@ -2,6 +2,7 @@
+  )
+  
+  // HeroQueue implements a HeroCache-based in-memory queue.
+ +// HeroCache is a key-value cache with zero heap allocation and optimized Garbage Collection.
+  type HeroQueue struct {
+   mu sync.RWMutex
+   cache *herocache.Cache","It's better to also mention briefly the feature of HeroCache, such as ""a key-value cache with zero heap allocation""",go,1,1,1
+"@@ -2,20 +2,20 @@
+   if err != nil {
+   return nil, err
+   }
+ - digests := make(map[string]RuntimeImage, len(buildArg))
+ + images := make(map[string]RuntimeImage, len(buildArg))
+   for k, v := range buildArg {
+   digest, err := imgBuilderPusher.BuildAndPush(dockerengine.New(exec.NewCmd()), v)
+   if err != nil {
+   return nil, fmt.Errorf(""build and push image: %w"", err)
+   }
+ - digests[k] = RuntimeImage{
+ + images[k] = RuntimeImage{
+   Digest: digest,
+   CustomTag: d.runtimeImage.CustomTag,
+   GitShortCommit: d.runtimeImage.GitShortCommit,
+   UUID: d.runtimeImage.UUID,
+   }
+   }
+ - image := digests[d.name]
+ + image := images[d.name]
+   return &image.Digest, nil
+  }",In this PR I am passing only main container `Digest`. In the next refactor the return type will be changed to `map[string]RuntimeImage`.,go,0,1,1
+"@@ -2,8 +2,10 @@
+   blsConsensusType = ""bls""
+  )
+  
+ -var p2pBootstrapDelay = time.Second * 5
+ -var testPubkeyConverter, _ = pubkeyConverter.NewHexPubkeyConverter(32)
+ +var (
+ + p2pBootstrapDelay = time.Second * 5
+ + testPubkeyConverter, _ = pubkeyConverter.NewHexPubkeyConverter(32)
+ +)
+  
+  func encodeAddress(address []byte) string {
+   return hex.EncodeToString(address)",could have grouped the variables as well in a single block,go,1,1,1
+"@@ -2,15 +2,11 @@
+   // handle oidc clients & this cluster's auth config
+   if a.env.Config.AuthConfig != """" && a.env.Config.IdentityClients != """" {
+   var config auth.OIDCConfig
+ - var pachdClientSecret string
+   var clients []identity.OIDCClient
+   if err := yaml.Unmarshal([]byte(a.env.Config.AuthConfig), &config); err != nil {
+   return errors.Wrapf(err, ""unmarshal auth config: %q"", a.env.Config.AuthConfig)
+   }
+ - if err := yaml.Unmarshal([]byte(a.env.Config.AuthClientSecret), &pachdClientSecret); err != nil {
+ - return errors.Wrapf(err, ""unmarshal auth client secret: %q"", a.env.Config.AuthClientSecret)
+ - }
+ - config.ClientSecret = pachdClientSecret
+ + config.ClientSecret = a.env.Config.AuthClientSecret
+   if err := yaml.Unmarshal([]byte(a.env.Config.IdentityClients), &clients); err != nil {
+   return errors.Wrapf(err, ""unmarshal identity clients: %q"", a.env.Config.IdentityClients)
+   }","Is this YAML or just a raw value? If YAML, we might need a test for the case where it's unset (dunno how well the empty string unmarshals as YAML).",go,1,1,1
+"@@ -2,7 +2,7 @@
+   if bundle == nil {
+   log.Info(""Bundle is not found"")
+   } else {
+ - log = log.WithField(telemetry.TrustDomainID, bundle.TrustDomain().ID())
+ + log = log.WithField(telemetry.TrustDomainID, bundle.TrustDomain().IDString())
+   log.Info(""Bundle loaded"")
+   }","```suggestion
+ 
+ log = log.WithField(telemetry.TrustDomainID, bundle.TrustDomain().IDString())
+ 
+ ```",go,1,0,0
+"@@ -2,8 +2,8 @@
+  // ActivityStatsResponse reflects a node activity stats.
+  // swagger:model ActivityStatsResponse
+  type ActivityStatsResponse struct {
+ - Online float64 `json:""online""`
+ - Active float64 `json:""active""`
+ + Online float64 `json:""online_percent""`
+ + Active float64 `json:""active_percent""`
+  }
+  
+  // QualityInfoResponse reflects a node quality.","```suggestion
+ 
+ Online float64 `json:""online_percent""`
+ 
+ ```",go,1,0,0
+"@@ -2,8 +2,6 @@
+  */
+  public static String formatTid(long tid) {
+  // do not change how this formats without considering implications for persistence
+ - // original format: String.format(""%s%016x%s"", PREFIX, tid, SUFFIX);
+ - // Since 2.1, this format was replaced with the faster version below
+  return FastFormat.toHexString(PREFIX, tid, SUFFIX);
+  }","Is this a change in format, or just a change in the method called to do the formatting? If it's the former, I'm curious what's different in the new format. If it's the latter, I'm not sure this comment about the original vs. the replacement implementation is very helpful, and it might be misleading.",java,1,1,1
+"@@ -2,21 +2,6 @@
+  */
+  Set<Task> getUpdatingTasks();
+  
+ - /**
+ - * Gets active tasks that are managed by the state updater.
+ - *
+ - * The state updater manages all active tasks that were added with the {@link StateUpdater#add(Task)} and that have
+ - * not been removed from the state updater with one of the following methods:
+ - * <ul>
+ - * <li>{@link StateUpdater#drainRestoredActiveTasks(Duration)}</li>
+ - * <li>{@link StateUpdater#drainRemovedTasks()}</li>
+ - * <li>{@link StateUpdater#drainExceptionsAndFailedTasks()}</li>
+ - * </ul>
+ - *
+ - * @return set of all tasks managed by the state updater
+ - */
+ - Set<StreamTask> getActiveTasks();
+ -
+  /**
+  * Returns if the state updater restores active tasks.
+  *",Could you please also remove `getActiveTasks()` from the interface?,java,1,1,1
+"@@ -2,12 +2,12 @@
+  // We initialized a state from the metadata log
+  assertTrue(stateFile.exists());
+  
+ +
+  String jsonString = ""{\""clusterId\"":\""abc\"",\""leaderId\"":0,\""leaderEpoch\"":0,\""votedId\"":-1,\""appliedOffset\"":0,\""currentVoters\"":[],\""data_version\"":0}"";
+  writeToStateFile(stateFile, jsonString);
+  
+  // verify that we can read the state file that contains the removed ""cluserId"" field.
+ - assertEquals(stateStore.readElectionState(), new ElectionState(0,
+ - OptionalInt.of(0), OptionalInt.empty(), Collections.emptySet()));
+ + assertEquals(ElectionState.withElectedLeader(0, 0, Collections.emptySet()), stateStore.readElectionState());
+  
+  stateStore.clear();
+  assertFalse(stateFile.exists());","1. we should put the expected result in the first parameter, so that the failed output will be meaningful. (ref: [here](https://junit.org/junit5/docs/5.0.1/api/org/junit/jupiter/api/Assertions.html#assertEquals-java.lang.Object-java.lang.Object-))
+ 
+ 2. I saw we use `ElectionState.withElectedLeader`, instead of `new ElectionState` in other tests. Do you think we can use the former one for consistency?",java,1,1,1
+"@@ -2,6 +2,10 @@
+  
+  @Override
+  public PollingStrategy getPollingStrategy(ProvisionerContext context, Cluster cluster) {
+ - return PollingStrategies.fixedInterval(0, TimeUnit.SECONDS);
+ + if (cluster.getStatus() == ClusterStatus.CREATING) {
+ + return PollingStrategies.fixedInterval(0, TimeUnit.SECONDS);
+ + }
+ + DataprocConf conf = DataprocConf.create(createContextProperties(context));
+ + return PollingStrategies.fixedInterval(conf.getPollInterval(), TimeUnit.SECONDS);
+  }
+  }","do you know if we end up using this interval for creation parts? If so, it would be better to check the cluster status like the ephemeral one does, so we don't add a couple seconds to the start up time.",java,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  @Override
+  public byte[] delete(final Bytes key) {
+ - throw new UnsupportedOperationException(""Versioned key-value stores do not support delete(key)"");
+ + throw new UnsupportedOperationException(""Versioned key-value stores do not support delete(key). Use delete(key, timestamp) instead."");
+  }
+  
+  @Override","Should we point to `delete(key, ts)` in the error message?",java,1,1,1
+"@@ -2,9 +2,9 @@
+  }
+  
+  @SafeVarargs
+ - public static <E> Set<E> union(final Supplier<Set<E>> constructor, final Collection<E>... set) {
+ + public static <E> Set<E> union(final Supplier<Set<E>> constructor, final Set<E>... set) {
+  final Set<E> result = constructor.get();
+ - for (final Collection<E> s : set) {
+ + for (final Set<E> s : set) {
+  result.addAll(s);
+  }
+  return result;",This seems a bit weird to me. I see that you changed this because `Tasks#allTaskIds()` returns a `Collection` instead of a `Set`. I think it is fine to let `Tasks#allTaskIds()` return a `Set`. The other reason you changed that is that is `Tasks#allTasks()` computing its result from two collections. Those two collections can be transformed to sets. Maybe we should also consider to change the return type of `allTasks()` to a set.,java,1,1,1
+"@@ -2,7 +2,7 @@
+  * By default, a {@link RequestId} is generated from a random 64-bit integer.
+  *
+  * @deprecated this method is replaced by
+ - * {@link #requestIdGenerator(Function<? super RoutingContext, ? extends RequestId>)}
+ + * {@link #requestIdGenerator(Function)}
+  */
+  @Deprecated
+  public ServerBuilder requestIdGenerator(Supplier<? extends RequestId> requestIdSupplier) {","```suggestion
+ 
+  * @deprecated Use
+ 
+ ```",java,1,0,0
+"@@ -2,12 +2,12 @@
+  */
+  void expire()
+  {
+ + expired = true;
+  ScheduledFuture<?> updateTask = this.updateTask;
+  if (updateTask != null)
+  {
+  updateTask.cancel(false);
+  }
+ - expired = true;
+  }
+  
+  /**","I'd put the expired = true before the cancel, I think it handles races better?",java,1,1,1
+"@@ -2,10 +2,9 @@
+  }
+  
+  private Stream<ValidationTestCase> validTestcases() {
+ - TestDiscovery discovery = new TestDiscovery();
+  return TEST_DISCOVERY.getValidRules()
+  .stream()
+ - .map(name -> new ValidationTestCase(name, discovery.validRulesetUrl(name), discovery.testCaseUrl(name)));
+ + .map(name -> new ValidationTestCase(name, TEST_DISCOVERY.validRulesetUrl(name), TEST_DISCOVERY.testCaseUrl(name)));
+  }
+  
+  private Stream<TestDiscovery.RulesTestcase> checkableTestCases() {","It's confusing to have two instances of TestDiscovery, is it possible to refactor?",java,1,1,1
+"@@ -2,9 +2,9 @@
+  boolean isAnonymousEndpoint(HttpServletRequest request);
+  
+  /**
+ - * Shows whether the Hilla is used in the project.
+ + * Checks if Hilla is available.
+  *
+ - * @return true if Hilla is used, false otherwise
+ + * @return true if Hilla is available, false otherwise
+  */
+  static boolean isEndpointUsed() {
+  try {","```suggestion
+ 
+  static boolean isHillaAvailable() {
+ 
+ ```",java,1,0,0
+"@@ -2,7 +2,7 @@
+  *
+  * An instance of this class is available for injection as bean in view and
+  * layout classes. The class is not {@link java.io.Serializable}, so potential
+ - * referencing fields in Vaadin view should be defined {@literal transient}.
+ + * referencing fields in Vaadin views should be defined {@literal transient}.
+  *
+  * @author Vaadin Ltd
+  * @since 23.3","```suggestion
+ 
+  * referencing fields in Vaadin views should be defined {@literal transient}.
+ 
+ ```",java,1,0,0
+"@@ -2,8 +2,6 @@
+  public void test() {
+  final ServerContext context = createMockContext();
+  TableConfiguration conf = createMock(TableConfiguration.class);
+ - // Eclipse might show @SuppressWarnings(""removal"") as unnecessary.
+ - // Eclipse is wrong. See https://bugs.eclipse.org/bugs/show_bug.cgi?id=565271
+  expect(conf.get(Property.TABLE_CLASSLOADER_CONTEXT)).andReturn("""").anyTimes();
+  expect(context.getTableConfiguration(EasyMock.anyObject())).andReturn(conf).anyTimes();
+  replay(context, conf);",Can we get rid of these comments also?,java,1,1,1
+"@@ -2,7 +2,6 @@
+  @Override
+  public String toString() {
+  return MoreObjects.toStringHelper(this)
+ - .omitNullValues()
+  .add(""docString"", docString)
+  .add(""markup"", markup)
+  .toString();","Not required because all values are not null.
+ 
+ ```suggestion
+ 
+ ```",java,1,1,1
+"@@ -2,5 +2,9 @@
+  return serviceConfiguration(ServiceConfiguration.builder().applyMutation(serviceConfiguration).build());
+  }
+  
+ + /**
+ + * Set the {@link JsonEndpointProvider} implementation that will be used by the client to determine the endpoint for
+ + * each request. This is optional; if none is provided a default implementation will be used the SDK.
+ + */
+  B endpointProvider(JsonEndpointProvider endpointProvider);
+  }",Should we add Javadoc?,java,1,1,1
+"@@ -2,10 +2,10 @@
+  * small parts from a single object. The Transfer Manager is built on top of the Java bindings of the AWS Common Runtime S3 client
+  * and leverages Amazon S3 multipart upload and byte-range fetches for parallel transfers.
+  *
+ - * <h1>Instantiate a Transfer Manager</h1>
+ - * <b>Create a transfer manager with SDK default settings</b>
+ + * <h1>Instantiate Transfer Manager</h1>
+ + * <b>Create a transfer manager instance with SDK default settings</b>
+  * {@snippet class = software.amazon.awssdk.transfer.s3.samples.S3TransferManagerSamples region = defaultTM}
+ - * <b>Create a transfer manager with custom settings</b>
+ + * <b>Create a transfer manager instance with custom settings</b>
+  * {@snippet class = software.amazon.awssdk.transfer.s3.samples.S3TransferManagerSamples region = customTM}
+  * <h1>Common Usage Patterns</h1>
+  * <b>Upload a file to S3</b>","Nit: Instantiate Transfer Manager, or Create a transfer manager instance",java,1,1,1
+"@@ -2,7 +2,7 @@
+   setOptions( { hideAnswerFeedback: value ? 'yes' : '' } )
+   }
+   help={ __(
+ - 'Hide feedback for this question on the frontend.',
+ + 'Do not show any feedback when the student answers this question.',
+   'sensei-lms'
+   ) }
+   />",frontend' might be a confusing term for some. Maybe change this to 'Do not show any feedback when the student answers this question.'?,javascript,1,1,1
+"@@ -2,6 +2,7 @@
+   assert.strictEqual(await menuItems.length, 7, ""There are proper count of menu items in the top level menu"");
+   assert.strictEqual(await listItems.length, 7, ""There are proper count of list items in the top level menu popover list"");
+   assert.strictEqual(await listItems[0].getAttribute(""additional-text""), await menuItems[0].getAttribute(""additional-text""), ""The first list item has proper additional text set"");
+ + assert.notOk(await listItems[4].getAttribute(""additional-text""), ""The list item with hideAdditionalText property set doesn't display additional text"");
+   assert.strictEqual(await listItems[1].getAttribute(""disabled""), ""true"", ""The second list item is disabled"");
+   assert.strictEqual(await listItems[2].getAttribute(""starts-section""), """", ""The third list item has separator addded"");
+   assert.ok(await listItems[3].$("".ui5-menu-item-icon-end""), ""The third list item has sub-items and must have arrow right icon after the text"");",I thinks there is no test coverage of the other API for hiding it.,javascript,1,1,1
+"@@ -2,7 +2,7 @@
+  return true;
+  }
+  
+ - return !!browser.mobile;
+ + return !browser.mobile;
+  }
+  
+  function supportsCue() {","```suggestion
+ 
+  return !browser.mobile;
+ 
+ ```",javascript,1,0,0
+"@@ -2,7 +2,7 @@
+  return player.getSecondarySubtitleStreamIndex();
+  }
+  } catch (e) {
+ - console.error(`Failed to get secondary stream index: ${e}`);
+ + console.error('[playbackmanager] Failed to get secondary stream index:', e);
+  }
+  
+  if (!player) {","Very minor, but for debugging I like to include the filename in logs and the actual error should just be passed as a second param.
+ 
+ 
+ 
+ ```suggestion
+ 
+  console.error('[playbackmanager] Failed to get secondary stream index:', e);
+ 
+ ```",javascript,1,1,1
+"@@ -1,11 +1,3 @@
+ 
+ -// vite.config.js
+ -const { defineConfig } = require('vite')
+ -const virtualIndex = require(""@ui5/webcomponents-tools/lib/dev-server/virtual-index-html-plugin.js"");
+ -
+ -module.exports = defineConfig(async () => {
+ - return {
+ - plugins: [await virtualIndex()],
+ - }
+ -})
+ \ No newline at end of file
+ +module.exports = require(""@ui5/webcomponents-tools/components-package/vite.config.js"");",this file is duplicate of `lib/tools/components-package/vite.config.js` Is it possible to reuse? or is it needed here?,javascript,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  if (restrictDownload) {
+  const totalSelectedImages = ctrl.imageCount();
+ - const selectedNonDownloadableImages = ctrl.imagesArray().filter(({ data }) => !data.userCanEdit || !data.softDeletedMetadata === undefined) || [];
+ + const selectedNonDownloadableImages = ctrl.imagesArray().filter(({ data }) => !data.userCanEdit || data.softDeletedMetadata !== undefined);
+  const singleImageSelected = totalSelectedImages === 1;
+  const multipleImagesSelected = totalSelectedImages > 1;","```suggestion
+ 
+  const selectedNonDownloadableImages = ctrl.imagesArray().filter(({ data }) => !data.userCanEdit || data.softDeletedMetadata !== undefined) || [];
+ 
+ ```
+ 
+ I think this was the intention
+ 
+ I'm also not sure if the `|| []` is necessary here, `ctrl.imagesArray().filter(...)` should always return an array",javascript,1,1,1
+"@@ -2,8 +2,7 @@
+  },
+  
+  // Remove forbidden fields from document
+ - // A forbidden field is a field for which the current user does not have the appropriate permission or
+ - // viewPermission to see it
+ + // A forbidden field is a field for which the current user does not have the appropriate viewPermission to see it
+  removeForbiddenFields(req, doc) {
+  if (!doc) {
+  return doc;
+ @@ -11,8 +10,7 @@
+  
+  const forbiddenSchemaFields = Object.values(self.schema)
+  .filter(field => {
+ - return (field.permission && !self.apos.permission.can(req, field.permission.action, field.permission.type)) ||
+ - (field.viewPermission && !self.apos.permission.can(req, field.viewPermission.action, field.viewPermission.type));
+ + return field.viewPermission && !self.apos.permission.can(req, field.viewPermission.action, field.viewPermission.type);
+  });
+  
+  forbiddenSchemaFields.forEach(field => {","field.permission, which will be renamed field.editPermission (see separate ticket PRO-3515), is the one that determines what the user can *do*.
+ 
+ 
+ 
+ `field.viewPermission` is the one that determines what the user can *see* (what is included in REST API responses).
+ 
+ 
+ 
+ The two are separate. You might sometimes be allowed to *see* something you cannot *change*, although the opposite would be a strange scenario it's true.
+ 
+ 
+ 
+ Your current code always properties you cannot edit from the API response. But if this were always appropriate `viewPermission` would not have been proposed as a separate feature from `editPermission` (formerly permission).",javascript,1,1,0
+"@@ -2,7 +2,7 @@
+   $hiddenPosts.append( data.data );
+   },
+   error: function(errorThrown){
+ - $hiddenPosts.append( __( ""<p>There was an error fetching courses: "", 'sensei-lms' ) + errorThrown.statusText + ': ' + errorThrown.status + ""</p>"" )
+ + $hiddenPosts.append( ""<p>"" + __( ""There was an error fetching courses: "", 'sensei-lms' ) + errorThrown.statusText + ': ' + errorThrown.status + ""</p>"" )
+   }
+   }
+   );","To keep it consistent, having the opening/closing tags both outside the translatable string:
+ 
+ ```suggestion
+ 
+ $hiddenPosts.append( ""<p>"" + __( ""There was an error fetching courses: "", 'sensei-lms' ) + errorThrown.statusText + ': ' + errorThrown.status + ""</p>"" )
+ 
+ ```",javascript,1,1,1
+"@@ -2,7 +2,7 @@
+   ...learningModeLessonPropertiesMeta,
+   ...meta,
+   description: __(
+ - 'Displays the lesson properties such as lengh and difficulty.',
+ + 'Displays the lesson properties such as length and difficulty.',
+   'sensei-lms'
+   ),
+   edit: function EditLearningModeLessonProperties() {","```suggestion
+ 
+ 'Displays the lesson properties such as length and difficulty.',
+ 
+ ```",javascript,1,0,1
+"@@ -2,6 +2,9 @@
+  
+  /**
+  * Validates that an end date is not lower than a start date
+ + * @param {Object} startDatePicker Start datepicker object
+ + * @param {Object} endDatePicker End datepicker object
+ + * @param {?function} errorCallback Optional function to call in case of error
+  */
+  validateEndDateHigherThanStart: function validateEndDateHigherThanStart(startDatePicker, endDatePicker, errorCallback) {
+  if (!startDatePicker || !startDatePicker.date()) {","if startDatePicker didn't have date() function : it broke validation and form can not be submitted.
+ 
+ no ?",javascript,1,1,1
+"@@ -2,7 +2,7 @@
+  ""element-state"",
+  {
+  requiresFor: true,
+ - associateWith: ""an markup attribute"",
+ + associateWith: ""a markup attribute"",
+  validator: validateCommonName,
+  },
+  ],","```suggestion
+ 
+  associateWith: ""a markup attribute"",
+ 
+ ```",javascript,0,1,1
+"@@ -2,11 +2,11 @@
+  
+  try {
+  const userData = await User.findById(id);
+ - const userHomePagePath = `/user/${userData.username}`;
+ + const username = userData.username;
+  await UserGroupRelation.remove({ relatedUser: userData });
+  await userData.statusDelete();
+  await ExternalAccount.remove({ user: userData });
+ - if (isUserPageDeletionEnabled) await Page.removeByPath(userHomePagePath);
+ + if (isUserPageDeletionEnabled) await Page.removeUserHome(username);
+  
+  const serializedUserData = serializeUserSecurely(userData);","Page.removeByPaht() „Å´ userHomePagePath „ÇíÊ∏°„Åô„Çø„Ç§„Éü„É≥„Ç∞„ÅØ `await userData.statusDelete();` „ÅÆÂæå„Å´„Å™„Çã„ÅÆ„Åß, userData.username „ÇíÊ∏°„Åó„Å¶„Åó„Åæ„ÅÜ„Å® path Âêç„Åå `/user/deleted_at_*` „Å´„Å™„Å£„Å¶„Åó„Åæ„Åó„Åæ„Åô„ÄÇ„Å™„ÅÆ„Åß„ÄÅuserData „Çí remove „Åô„ÇãÂâç„Å´„ÅÇ„Çâ„Åã„Åò„ÇÅ userHomePagePath „Å®„Åó„Å¶„Ç≥„Éî„Éº„Åô„Çã„Çà„ÅÜ„Å´„Åó„Å¶„ÅÑ„Åæ„Åô„ÄÇ",javascript,1,0,0
+"@@ -2,7 +2,8 @@
+  }
+  
+  function setCurrentTimeIfNeeded(element, seconds) {
+ - if (Math.abs(element.currentTime || 0, seconds) <= 1) {
+ + // If it's worth skipping (1 sec or less of a difference)
+ + if (Math.abs((element.currentTime || 0) - seconds) >= 1) {
+  element.currentTime = seconds;
+  }
+  }","Your logic is correct. It was wrongly unminified.
+ 
+ https://github.com/jellyfin/jellyfin-web/blob/4678528d0028685b45c7c6daa2e24b72a363535b/src/bower_components/emby-webcomponents/htmlvideoplayer/htmlmediahelper.js#L62
+ 
+ 
+ 
+ ```suggestion
+ 
+  if (Math.abs((element.currentTime || 0) - seconds) <= 1) {
+ 
+ ```",javascript,1,1,1
+"@@ -2,6 +2,8 @@
+  return res.json(ApiResponse.error(""You don't have permission to update this page.""));
+  }
+  
+ + const previousRevision = await Revision.findById(revisionId);
+ + result.savedPage = await Page.updatePage(page, previousRevision.body, previousRevision.body, req.user);
+  await PageTagRelation.updatePageTags(pageId, tags);
+  result.tags = await PageTagRelation.listTagNamesByPage(pageId);","revison „ÅåÊõ¥Êñ∞„Åï„Çå„Çã„Åì„Å®„Å´„Çà„Å£„Å¶ [PageStatusAlert](https://github.com/weseek/growi/blob/8b7dd597e4b89f661f2d77b029d30919fc2db9f3/packages/app/src/components/PageStatusAlert.jsx#L119) „ÅåÂèçÂøú„Åó„Å¶„Åó„Åæ„ÅÜ„Åì„Å®„ÅåÂéüÂõ†„Åß„Åó„Åü„ÄÇ
+ 
+ Tag „ÅÆÊõ¥Êñ∞„Åß revision „ÇíÊõ¥Êñ∞„Åô„ÇãÂøÖË¶Å„ÅåÁÑ°„ÅÑ„Å®ÊÄù„Å£„ÅüÔºàBody „ÅÆÂ∑ÆÂàÜ„Åå„Å™„ÅÑ„ÅÆ„ÅßÔºâ„Åß‰ª•‰∏ä„ÅÆÂá¶ÁêÜ„ÇíÂâäÈô§„Åó„Åæ„Åó„Åü„ÄÇ„Çà„Å£„Å¶„ÄåÊõ¥Êñ∞„ÇíÈÄöÁü•„Åó„Å™„ÅÑ„Äç‰ªïÊßò„Å´Â§âÊõ¥„Åó„Åæ„Åó„Åü„ÄÇ",javascript,1,0,0
+"@@ -2,6 +2,7 @@
+   args: {
+   doc: this.frm.doc,
+   print_format: this.selected_format(),
+ + _lang: this.lang_code,
+   },
+   callback: function (r) {
+   if (!r.exc) {",This is intentional? We pop _lang from form_dict to set language during print.,javascript,1,1,1
+"@@ -2,7 +2,7 @@
+  $this->loggedQuery->error = $e;
+  $this->_log();
+  
+ - if (Configure::read('Error.wrapStatementException', false) === true) {
+ + if (Configure::read('Error.convertStatementToDatabaseException', false) === true) {
+  $code = $e->getCode();
+  if (!is_int($code)) {
+  $code = null;","I think this name should be clearer.
+ 
+ 
+ 
+ convertSomethingToSomething?",php,1,1,1
+"@@ -2,7 +2,7 @@
+   $percentage = $stats['completed_lessons_percentage'];
+  
+   // translators: %1$d number of lessons completed, %2$d number of total lessons, %3$s percentage.
+ - $attributes['label'] = sprintf( __( '%1$d of %2$d lessons completed (%3$s)', 'sensei-lms' ), $completed, $total_lessons, round( $percentage ) . '%' );
+ + $attributes['label'] = sprintf( __( '%1$d of %2$d lessons completed (%3$s)', 'sensei-lms' ), $completed, $total_lessons, floor( $percentage ) . '%' );
+   $attributes['percentage'] = $percentage;
+  
+   return \Sensei\Blocks\Shared\Progress_Bar::render( $attributes );","Does it make more sense to use `floor` instead of `round`? To me, a 99.5% completed test is not 100% completed. üòÑ",php,1,1,1
+"@@ -2,7 +2,7 @@
+  *
+  * @return void
+  */
+ - public function testGetResults(): void
+ + public function testGetSearchClassId(): void
+  {
+  $class = new \ReflectionClass('VuFind\Recommend\WebResults');
+  $method = $class->getMethod('getSearchClassId');",Another test name that you might want to change to testGetSearchClassId.,php,1,1,1
+"@@ -2,7 +2,7 @@
+   array_key_exists( 'className', $block['attrs'] ) &&
+   false !== strpos( $block['attrs']['className'], 'wp-block-sensei-lms-course-list' );
+  
+ - $is_my_courses_page = isset( $post ) && is_page() && intval( Sensei()->settings->get( 'my_course_page' ) ) === $post->ID;
+ + $is_my_courses_page = get_the_ID() === (int) Sensei()->settings->get( 'my_course_page' );
+  
+   if (
+   $is_course_list_block &&","Do you think the following check might be enough and a bit easier to read? You could also clean up the global in this case.
+ 
+ 
+ 
+ ```suggestion
+ 
+ $is_my_courses_page = get_the_ID() === (int) Sensei()->settings->get( 'my_course_page' );
+ 
+ ```",php,1,1,1
+"@@ -2,6 +2,11 @@
+   continue;
+   }
+  
+ + /**
+ + * Regex to detect bg images inside CSS.
+ + * @param string $regex regex to detect.
+ + * @return string
+ + */
+   $regex = apply_filters( 'rocket_lazyload_bg_images_regex', 'background-image\s*:\s*(?<attr>\s*url\s*\((?<url>[^)]+)\))\s*;?' );
+  
+   if(! is_string( $regex ) ) {","```suggestion
+ 
+ if ( false !== strpos( $regex, 'background-image' ) ) {
+ 
+ ```
+ 
+ What do you think?",php,1,0,1
+"@@ -2,7 +2,7 @@
+  *
+  * @return void
+  */
+ - public function testGetResults(): void
+ + public function testGetSearchClassId(): void
+  {
+  $class = new \ReflectionClass('VuFind\Recommend\SummonResults');
+  $method = $class->getMethod('getSearchClassId');",I'd suggest renaming this method to `testGetSearchClassId()`.,php,1,1,1
+"@@ -2,11 +2,11 @@
+  <?php
+  return array (
+  'app_version' => 'v6.0.5',
+ - 'full_app_version' => 'v6.0.5 - build 8230-g393c32558',
+ - 'build_version' => '8230',
+ + 'full_app_version' => 'v6.0.5 - build 8229-g94e723a88',
+ + 'build_version' => '8229',
+  'prerelease_version' => '',
+ - 'hash_version' => 'g393c32558',
+ - 'full_hash' => 'v6.0.5-102-g393c32558',
+ - 'branch' => 'master',
+ + 'hash_version' => 'g94e723a88',
+ + 'full_hash' => 'v6.0.5-101-g94e723a88',
+ + 'branch' => 'develop',
+  );
+ \ No newline at end of file",These changes aren't correct - can you revert this file?,php,1,0,1
+"@@ -2,8 +2,23 @@
+   Sensei()->assets->register( 'sensei-blocks-frontend', 'blocks/frontend.js', [], true );
+   Sensei()->assets->register( 'sensei-theme-blocks', 'css/sensei-theme-blocks.css' );
+  
+ - wp_register_script( 'sensei-youtube-iframe-api', 'https://www.youtube.com/iframe_api', [], 'unversioned', true );
+ + wp_register_script( 'sensei-youtube-iframe-api', 'https://www.youtube.com/iframe_api', [], 'unversioned', false );
+   wp_register_script( 'sensei-vimeo-iframe-api', 'https://player.vimeo.com/api/player.js', [], 'unversioned', false );
+ +
+ + wp_add_inline_script(
+ + 'sensei-youtube-iframe-api',
+ + 'window.senseiYouTubeIframeAPIReady = new Promise( ( resolve ) => {
+ + const previousYouTubeIframeAPIReady =
+ + window.onYouTubeIframeAPIReady !== undefined
+ + ? window.onYouTubeIframeAPIReady
+ + : () => {};
+ + window.onYouTubeIframeAPIReady = () => {
+ + resolve();
+ + previousYouTubeIframeAPIReady();
+ + };
+ + } )',
+ + 'before'
+ + );
+   }
+  
+   /**",I changed to load the Vimeo in the `head` since the [documentation](https://developer.vimeo.com/player/sdk/basics#accessing-the-player-sdk) recommends adding it before our script.,php,1,1,1
+"@@ -2,7 +2,8 @@
+   }
+   $object->timespent_fk_user = GETPOST(""userid_line"", 'int');
+   $object->timespent_fk_product = GETPOST(""fk_product"", 'int');
+ - $object->timespent_fk_product = GETPOST(""fk_product"", 'int');
+ + $object->timespent_invoiceid = GETPOST(""invoiceid"", 'int');
+ + $object->timespent_invoicelineid = GETPOST(""invoicelineid"", 'int');
+  
+   $result = 0;
+   if (in_array($object->timespent_fk_user, $childids) || $user->rights->projet->all->creer) {","Duplicate line.
+ 
+ May be instead ?
+ 
+ ```
+ 
+ $object->timespent_invoiceid = GETPOST(""invoiceid"", 'int');
+ 
+ $object->timespent_invoicelineid = GETPOST(""invoicelineid"", 'int');
+ 
+ ```",php,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  // Load Dolibarr environment
+  require '../../main.inc.php';
+ -require '../../core/lib/files.lib.php';
+ +require_once DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php';
+  
+  $action = GETPOST('action', 'aZ09');
+  $module = GETPOST('module', 'aZ09');","@Hystepik Only link to the main.inc must be relative and using require.
+ 
+ 
+ 
+ Once the main is loaded, we must use absolute link using DOL_DOCUMENT_ROOT.'/core/lib/files.lib.php'; and you must use require_once so you wont get error if files.lib.php is loaded by a hook inside the main.",php,0,1,1
+"@@ -2,10 +2,7 @@
+   $baseUrl = $context->getBaseUrl();
+  
+   // Add the preview script
+ - if (false === strpos($baseUrl, $previewScript))
+ - {
+ - $context->setBaseUrl(rtrim($baseUrl, '/') . $previewScript);
+ - }
+ + $context->setBaseUrl(preg_replace('(/[^/]*$)', '', $baseUrl) . $previewScript);
+  
+   $objRouter = System::getContainer()->get('router');","```suggestion
+ 
+ $context->setBaseUrl(preg_replace('(/[^/]*$)', '', $baseUrl) . $previewScript);
+ 
+ ```
+ 
+ Simpler alternative?",php,1,1,1
+"@@ -2,7 +2,7 @@
+  <div class=""col-md-12"">
+  <div class=""alert alert-danger"">
+  <i class=""fas fa-exclamation-triangle faa-pulse animated"" aria-hidden=""true""></i>
+ - <strong>{{ trans('general.'notification_warning') }} </strong>
+ + <strong>{{ trans('general.notification_warning') }} </strong>
+  {{ trans('general.asset_deleted_warning') }}
+  </div>
+  </div>","Whoops - almost there! One too many apostrophes here :) 
+ 
+ 
+ 
+ `{{ trans('general.'notification_warning') }}`
+ 
+ 
+ 
+ should be 
+ 
+ 
+ 
+ `{{ trans('general.notification_warning') }}`
+ 
+ 
+ 
+ The entire key gets enclosed, not the segments.",php,1,1,1
+"@@ -2,12 +2,9 @@
+  $sFileGetContent = Yii::app()->request->getParam('filegetcontents', ''); // The file to view fu_ or fu_tmp
+  $bDelete = Yii::app()->request->getParam('delete');
+  $sFieldName = Yii::app()->request->getParam('fieldname');
+ - // Make sure the fieldname is valid, but only when it's needed (it's not needed on 'filegetcontents' requests)
+ - if (empty($sFileGetContent)) {
+ - $aFieldMap = createFieldMap($oSurvey, 'short', false, false, $sLanguage);
+ - if (!isset($aFieldMap[$sFieldName])) {
+ - throw new CHttpException(400); // See for debug > 1
+ - }
+ + $aFieldMap = createFieldMap($oSurvey, 'short', false, false, $sLanguage);
+ + if (!isset($aFieldMap[$sFieldName])) {
+ + throw new CHttpException(400); // See for debug > 1
+  }
+  $sFileName = Yii::app()->request->getParam('filename', ''); // The file to delete fu_ or fu_tmp
+  $sOriginalFileName = Yii::app()->request->getParam('name', ''); // Used for javascript return only","This was added for security issue : in my opinion : we must test it,
+ 
+ Update JS to send the fieldname on each action can be done",php,1,1,1
+"@@ -2,7 +2,7 @@
+  public function withExpired()
+  {
+  $new = clone $this;
+ - $new->expiresAt = new DateTimeImmutable('1970-01-01 00:00:01', new DateTimeZone('UTC'));
+ + $new->expiresAt = new DateTimeImmutable('@1');
+  
+  return $new;
+  }","```suggestion
+ 
+  $new->expiresAt = new DateTimeImmutable('@1');
+ 
+ ```",php,1,0,0
+"@@ -2,7 +2,7 @@
+  
+   /*In dolibarr 3.6.2 (my current version) doesn't have $langs->default and
+   in case exist why ask $lang like a parameter?*/
+ - if (((is_object($langs) && $langs->getDefaultLang(1) == 'es_MX') || (!is_object($langs) && $langs == 'es_MX')) && $numorcurrency == 'currency') {
+ + if (((is_object($langs) && $langs->getDefaultLang(0) == 'es_MX') || (!is_object($langs) && $langs == 'es_MX')) && $numorcurrency == 'currency') {
+   if ($numero >= 1 && $numero < 2) {
+   return (""UN PESO "".$parte_decimal."" / 100 M.N."");
+   } elseif ($numero >= 0 && $numero < 1) {","You replace ->default with getDefaultLang(1)
+ 
+ I think it should be getDefaultLang(0)
+ 
+ According to dof of getDefaultLang(), if using parameter 1, result will return a lang code on 2 char, but comparison is done with es_MX so we need the lang code on 5 chars, so with param 0 and not 1",php,1,1,1
+"@@ -2,7 +2,7 @@
+  [
+  GeniusClimateZone(broker, z)
+  for z in broker.client.zone_objs
+ - if 'type' in z.data and z.data[""type""] in GH_ZONES
+ + if z.data.get(""type"") in GH_ZONES
+  ]
+  )","This will fail CI. Does this work?
+ 
+ ```suggestion
+ 
+  if z.data.get(""type"") in GH_ZONES
+ 
+ ```",python,1,1,1
+"@@ -2,16 +2,15 @@
+  pipe.run]:
+  try:
+  method()
+ - assert (False)
+ + assert False
+  except RuntimeError:
+ - assert (True)
+ + pass
+  # disable check
+  pipe.enable_api_check(False)
+  for method in [pipe.schedule_run, pipe.share_outputs, pipe.release_outputs, pipe.outputs,
+  pipe.run]:
+  try:
+  method()
+ - assert (True)
+  except RuntimeError:
+  assert (False)
+  yield check, iter_type","```suggestion
+ 
+  assert False
+ 
+ ```",python,1,0,0
+"@@ -2,7 +2,6 @@
+  assert result[""ResponseMetadata""][""HTTPStatusCode""] == 200
+  result = stepfunctions_client.describe_state_machine(stateMachineArn=result[""stateMachineArn""])
+  assert result[""ResponseMetadata""][""HTTPStatusCode""] == 200
+ - assert result[""loggingConfiguration""]
+  assert result[""loggingConfiguration""] == {""level"": ""OFF"", ""includeExecutionData"": False}
+  
+  # clean up","unsafe cleanup
+ 
+ 
+ 
+ This obv. isn't super critical when running against LocalStack but a test against AWS might leak resources here.
+ 
+ 
+ 
+ Either fixtures or other safer cleanup strategies should be used instead. A finally block would be ok too but would again need to wrap the individual cleanup statements in a safe way so they don't interfere with each other.",python,1,1,1
+"@@ -2,7 +2,7 @@
+  except FileNotFoundError:
+  self.log().warning(""Bank calibration file not found or not provided."")
+  bank_shifts = [zero_angle_corr] * n_banks
+ - except RuntimeError as e:
+ + except (RuntimeError, IndexError) as e:
+  self.log().warning(str(e))
+  self.log().warning(""Padding the shifts list with zero angle correction."")
+  bank_shifts.extend([zero_angle_corr]*(np.zeros(len(bank_shifts)-n_banks)))",Should this be `n_banks - len(bank_shifts)`?,python,1,1,1
+"@@ -2,10 +2,8 @@
+  pytest.raises(nx.NetworkXError, nx.inverse_line_graph, G)
+  
+  def test_edgeless_graph(self):
+ - # This graph has 2 nodes and 0 edges
+  G = nx.Graph()
+ - G_nodes = [0, 1]
+ - G.add_nodes_from(G_nodes)
+ + G.add_nodes_from([0, 1])
+  pytest.raises(nx.NetworkXError, nx.inverse_line_graph, G)
+  
+  def test_non_line_graph(self):","Just a nit, but this could be streamlined a bit
+ 
+ 
+ 
+ ```suggestion
+ 
+  G = nx.Graph()
+ 
+  G.add_nodes_from([0, 1])
+ 
+ ```",python,1,1,1
+"@@ -2,14 +2,17 @@
+  from collections import OrderedDict
+  from typing import Final
+  
+ +from localstack.aws.api.stepfunctions import Arn
+  from localstack.services.stepfunctions.backend.execution import Execution
+  from localstack.services.stepfunctions.backend.state_machine import StateMachine
+  from localstack.services.stores import AccountRegionBundle, BaseStore, LocalAttribute
+  
+  
+  class SFNStore(BaseStore):
+ - sm_by_arn: dict[str, StateMachine] = LocalAttribute(default=dict)
+ - execs_by_exec_arn: dict[str, Execution] = LocalAttribute(
+ + # Maps ARNs to state machines.
+ + state_machines: Final[dict[Arn, StateMachine]] = LocalAttribute(default=dict)
+ + # Maps Execution-ARNs to state machines.
+ + executions: Final[dict[Arn, Execution]] = LocalAttribute(
+  default=OrderedDict
+  ) # TODO: when snapshot to pods stop execution(?)","nit: The more idiomatic naming would be `state_machines` here - and adding a comment/docstring that this variable maps ARNs to state machines.
+ 
+ 
+ 
+ (same for `execs_by_exec_arn` -> `executions` below)",python,1,1,1
+"@@ -2,7 +2,7 @@
+  self.tracker.record_definition(o.name)
+  elif self.tracker.is_defined_in_different_branch(o.name):
+  # A variable is defined in one branch but used in a different branch.
+ - if len(self.loops) > 0:
+ + if self.loops:
+  self.msg.variable_may_be_undefined(o.name, o)
+  else:
+  self.msg.var_used_before_def(o.name, o)","You can write simply like this, empty lists are falsey.
+ 
+ ```suggestion
+ 
+  if self.loops:
+ 
+ ```",python,1,1,1
+"@@ -2,7 +2,7 @@
+  # Test seems to be unstable (see gh-17839 for a bug report on Debian
+  # i386), so skip it.
+  if is_linux_32 and case == 'pdf':
+ - pytest.skip(""%s fit known to fail or deprecated"" % dist)
+ + pytest.skip(""Test unstable on some platforms; see gh-17839, 17859"")
+  
+  data = nolan_loc_scale_sample_data
+  # We only test against piecewise as location/scale transforms","```suggestion
+ 
+  pytest.skip(""Test unstable on some platforms; see gh-17839, 17859"")
+ 
+ ```
+ 
+ https://github.com/scipy/scipy/pull/17865/files#r1088471394",python,1,0,0
+"@@ -2,6 +2,15 @@
+  def close_window(self, save_undocked=False):
+  """"""
+  Close QMainWindow instance that contains this widget.
+ +
+ + Parameters
+ + ----------
+ + save_undocked : bool, optional
+ + True if the undocked state needs to be saved. The default is False.
+ +
+ + Returns
+ + -------
+ + None.
+  """"""
+  logger.debug(""Docking plugin back to the main window"")",Please document the new `save_undocked` kwarg in the docstring of this method.,python,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  edges_from = sorted(self.edge_likes(source_id=curr_node.id))
+  if curr_node in processed_nodes:
+ - if len(edges_from) == 0:
+ + if not edges_from:
+  return ret
+  if curr_node in prior_on_trace:
+  ret.append(indent + '‚îä (looped back)')","```suggestion
+ 
+  if not edges_from:
+ 
+ ```",python,1,0,0
+"@@ -2,7 +2,7 @@
+  manufacturer = device[""manufacturer""]
+  device_type = device[""type""]
+  
+ - room_id: str = device.get(""location"")
+ + room_id: str | None = device.get(""location"")
+  room_name: str | None = None
+  if room_id is not None:
+  room_name = coordinator.rooms.get(room_id)","```suggestion
+ 
+  room_id: str | None = device.get(""location"")
+ 
+ ```",python,1,0,0
+"@@ -2,7 +2,7 @@
+  the provided hints in order to save time on syncing them.
+  pass_cols_to_partitions : bool, default: False
+  Whether pass columns into applied `func` or not.
+ - Note that `func` must be able to obtain `*columns` arg.
+ + Note that `func` must be able to obtain `df, *columns`.
+  
+  Returns
+  -------","```suggestion
+ 
+  Note that `func` must be able to obtain `df, *columns`.
+ 
+ ```",python,1,0,0
+"@@ -2,7 +2,7 @@
+  
+  with open(self.metadata_filename, ""w"") as f:
+  # Write provenance header
+ - f.write(f""// This file is generated by {THIS}n"")
+ + f.write(f""// This file is generated by {THIS}\n"")
+  f.write(self.from_source_files())
+  f.write(f""// Do not edit!\n"")","```suggestion
+ 
+  f.write(f""// This file is generated by {THIS}\n"")
+ 
+ ```
+ 
+ Whoops.",python,1,0,0
+"@@ -2,6 +2,8 @@
+  from Bio import MissingExternalDependencyError
+  import os
+  
+ +os.environ[""LANG""] = ""C""
+ +
+  if ""command not found"" or ""'psea' is not recognized"" in getoutput(""psea -h""):
+  raise MissingExternalDependencyError(
+  ""Download and install psea from ftp://ftp.lmcp.jussieu.fr/pub/sincris/software/protein/p-sea/. Make sure that psea is on path""","As in the examples referred to, please add this line above:
+ 
+ 
+ 
+ ```
+ 
+ os.environ['LANG'] = 'C'
+ 
+ ```
+ 
+ 
+ 
+ We want to ensure the error messages are in US English to match the if-statement.",python,1,1,1
+"@@ -2,13 +2,12 @@
+  def __init__(self):
+  super(SoftCComplexType, self).__init__(c_double_type)
+  
+ - def declaration_code(self, entity_code,
+ - for_display = 0, dll_linkage = None, pyrex = 0):
+ + def declaration_code(self, entity_code, for_display=0, dll_linkage=None, pyrex=0):
+  base_result = super(SoftCComplexType, self).declaration_code(
+  entity_code,
+  for_display=for_display,
+  dll_linkage=dll_linkage,
+ - pyrex=pyrex
+ + pyrex=pyrex,
+  )
+  if for_display:
+  return ""soft %s"" % base_result","```suggestion
+ 
+  pyrex=pyrex,
+ 
+ ```",python,1,0,0
+"@@ -2,7 +2,7 @@
+  #
+  # @api private
+  def load_async
+ - @documents_loader = DocumentsLoader.new(view, klass, criteria) unless @documents_loader
+ + @documents_loader ||= DocumentsLoader.new(view, klass, criteria)
+  end
+  
+  private",is there a reason you didn't just use the `||=` operator here? Do you want it to return `nil` when `@documents_loader` already exists?,ruby,1,1,1
+"@@ -2,13 +2,13 @@
+  
+  private
+  def set_trust_level!
+ - return unless user.reputation >= MIN_REP_FOR_TRUST_LEVEL
+ + return if user.reputation < MIN_REP_FOR_TRUST_LEVEL
+  
+  client.update_trust_level(discourse_user_id, level: 2)
+  end
+  
+  def set_pm_enabled!
+ - return unless user.reputation >= MIN_REP_FOR_PM_ENABLED
+ + return if user.reputation < MIN_REP_FOR_PM_ENABLED
+  
+  group_id = client.group(""pm-enabled"").dig(*%w[group id])
+  client.group_add(group_id, user_id: [discourse_user_id])","`if` is arguably slightly easier to read than `unless`:
+ 
+ 
+ 
+ ```suggestion
+ 
+  return if user.reputation < MIN_REP_FOR_TRUST_LEVEL
+ 
+ ```",ruby,1,1,1
+"@@ -2,8 +2,6 @@
+  c.stubbing_non_public_method = :prevent
+  end
+  
+ -Rack::Attack.cache.store = ActiveSupport::Cache::MemoryStore.new
+ -
+  # Require the support helper files
+  Dir.foreach(Rails.root / ""test"" / ""support"") do |path|
+  next if path.starts_with?('.')",We should probably set this in the exercism config gem.,ruby,1,1,1
+"@@ -2,7 +2,7 @@
+  def create_collection
+  if coll_options = collection.database.list_collections(filter: { name: collection_name.to_s }).first
+  logger.info(
+ - ""MONGOID: Collection '#{collection_name}' already exist "" +
+ + ""MONGOID: Collection '#{collection_name}' already exists "" +
+  ""in database '#{database_name}' with options '#{coll_options}'.""
+  )
+  else","```suggestion
+ 
+  ""MONGOID: Collection '#{collection_name}' already exists "" +
+ 
+ ```",ruby,1,0,0
+"@@ -2,10 +2,13 @@
+  end
+  
+  test 'products order on all tab' do
+ + Product.update_all(created_at: 1.day.ago, published_at: 1.day.ago) # rubocop:disable Rails/SkipsModelValidations
+  # ÊúÄÊñ∞„ÅÆÊèêÂá∫Áâ©„ÇíÁîªÈù¢‰∏ä„ÅßÂà§ÂÆö„Åô„Çã„Åü„ÇÅ„ÄÅÊèêÂá∫Áâ©„Çí1„Éö„Éº„Ç∏ÂÜÖ„Å´Âèé„ÇÅ„Çã
+  Product.limit(Product.count - Product.default_per_page).delete_all
+ - newest_product = Product.order(published_at: :desc, id: :asc).first
+ - oldest_product = Product.order(published_at: :desc, id: :asc).last
+ + newest_product = Product.reorder(:id).first
+ + newest_product.update(published_at: Time.current)
+ + oldest_product = Product.reorder(:id).last
+ + oldest_product.update(published_at: 2.days.ago)
+  
+  visit_with_auth '/products', 'komagata'","249Ë°åÁõÆ„Åã„Çâ„ÅÆ„Ç≥„Éº„Éâ„ÅÆ„Çà„ÅÜ„Å´„ÄÅ`Product.update_all(created_at: 1.day.ago, published_at: 1.day.ago)`„Å™„Å©„ÇíËøΩÂä†„Åó„Å¶„ÄÅ„Åì„ÅÆ„ÉÜ„Çπ„ÉàÁî®„Å´„ÉÜ„Çπ„Éà„Éá„Éº„Çø„ÇíÂä†Â∑•„Åô„Çå„Å∞„ÄÅ`products.yml`„Å´`published_at`„ÇíËøΩÂä†„Åó„Å™„Åè„Å¶„ÇÇ„Çà„Åè„Å™„Çã„Åã„ÇÇ„Å®ÊÄù„ÅÑ„Åæ„Åó„ÅüÔºÅ„Çà„Åë„Çå„Å∞Ê§úË®é„Åó„Å¶„Åø„Å¶„Åè„Å†„Åï„ÅÑüôè",ruby,0,0,0
+"@@ -2,8 +2,8 @@
+  # deprecation (or otherwise access the reporter).
+  :deprecation_stream,
+  
+ - # Dry run was passed through CLI args and must be set before `requires`
+ - # to ensure RSpec.configuration.dry_run? is availble in all configure block.
+ + # In order for `RSpec.configuration.dry_run?` to return `true` during
+ + # processing the `requires` option, it must be parsed before it.
+  :dry_run,
+  
+  # load paths depend on nothing, but must be set before `requires`","```suggestion
+ 
+  # In order for `RSpec.configuration.dry_run?` to return `true` during
+ 
+  # processing the `requires` option, it must be parsed before it.
+ 
+ ```",ruby,1,0,0
+"@@ -2,7 +2,7 @@
+  class CreateLessonPreviews < ActiveRecord::Migration[6.1]
+  def change
+  create_table :lesson_previews, id: :uuid do |t|
+ - t.text :content, default: '', null: false
+ + t.text :content, null: false
+  t.timestamps
+  end
+  end",Can we remove the default here please? we don't ever want to have lesson previews with empty content.,ruby,1,1,1
+"@@ -2,7 +2,8 @@
+  #
+  # If the replace option is true, unspecified attributes will be dropped,
+  # and if it is false, unspecified attributes will be maintained. The
+ - # replace option defaults to true in Mongoid 8.1 and earlier.
+ + # replace option defaults to true in Mongoid 8.1 and earlier. The default
+ + # will be flipped to false in Mongoid 9.
+  #
+  # @example Upsert the document.
+  # document.upsert","Does it worth mentioning that the default will be changed to `false` in 9.0, since we know that?",ruby,1,1,1
+"@@ -2,8 +2,8 @@
+  license all_of: [""Apache-2.0"", ""MIT""]
+  
+  livecheck do
+ - url ""https://scm-manager.org/download/rss.xml""
+ - regex(%r{/download/(\d+(?:\.\d+)+)}i)
+ + url ""https://scm-manager.org/download/""
+ + regex(/href=.*?unix[._-]v?(\d+(?:\.\d+)+)\.t/i)
+  end
+  
+  bottle do","```suggestion
+ 
+  url ""https://scm-manager.org/download/""
+ 
+  regex(/href=.*?unix[._-]v?(\d+(?:\.\d+)+)\.t/i)
+ 
+ ```
+ 
+ 
+ 
+ I would go with the download page in this case, as it allows us to match the version from the tarball that we use in the formula's `stable` URL. The RSS feed seems to only announce the release of a version, so there's no guarantee that the tarball we need will be available at the same time the release post is created. It's likely fine but there's something to be said for matching the version from the tarball filename when we have options like this.",ruby,1,1,1
+"@@ -2,7 +2,7 @@
+  
+  def updated_last_visited_on!
+  return unless user_signed_in?
+ - return unless request.format == 'html'
+ + return unless request.format == :html
+  return if current_user.last_visited_on == Time.zone.today
+  
+  current_user.update(last_visited_on: Time.zone.today)","Not sure if this is the ""proper"" way to do it, but the aim was to not updated the visited on date when doing an API request",ruby,1,1,1
+"@@ -2,7 +2,7 @@
+  # @param [ Symbol ] method Delete or destroy.
+  def batch_remove(docs, method = :delete)
+  # If the _id is nil, we cannot use $pull and delete by searching for
+ - # the id. Therefore we have to user pullAll with the documents
+ + # the id. Therefore we have to use pullAll with the documents'
+  # attributes.
+  pulls, pull_alls = pre_process_batch_remove(docs, method).partition do |o|
+  o.key?(""_id"") && !o[""_id""].nil?","The `key?` check here is redundant, no?",ruby,1,0,1
+"@@ -2,23 +2,23 @@
+  
+  context ""when the string is empty"" do
+  
+ - let(:evolved) do
+ + let(:mongoized) do
+  Date.mongoize("""")
+  end
+  
+  it ""returns nil"" do
+ - expect(evolved).to be_nil
+ + expect(mongoized).to be_nil
+  end
+  end
+  
+  context ""when the string is an invalid time"" do
+  
+ - let(:evolved) do
+ + let(:mongoized) do
+  Date.mongoize(""time"")
+  end
+  
+  it ""returns nil"" do
+ - expect(evolved).to be_nil
+ + expect(mongoized).to be_nil
+  end
+  end
+  end","This is a nit, but this variable should be `mongoized` not `evolved`",ruby,1,1,1
+"@@ -1,6 +1,6 @@
+ 
+  class UpdateDayMetricsJob < ApplicationJob
+ - queue_as :default
+ + queue_as :metrics
+  
+  def perform = MetricPeriod::UpdateDayMetrics.()
+  end",Is this the right queue?,ruby,1,0,1
+"@@ -2,7 +2,7 @@
+  seed ""Functional February"",
+  :ultimate,
+  'functional',
+ - 'Completed five exercises in a functional language in February'
+ + 'Completed and published five exercises in a functional language in February'
+  
+  def self.worth_queuing?(exercise:)
+  TRACK_SLUGS.include?(exercise.track.slug)","```suggestion
+ 
+  'Completed and published five exercises in a functional language in February'
+ 
+ ```",ruby,1,0,0
+"@@ -1,4 +1,6 @@
+ 
+  class LessonPreview < ApplicationRecord
+  validates :content, presence: true, length: { maximum: 70_000 }
+ +
+ + scope :expired, -> { where(created_at: ..1.month.ago.end_of_day) }
+  end","Nit: To validate this length on the client side, can we add a `maxLength={10}` attribute to the text field [here](https://github.com/TheOdinProject/theodinproject/blob/main/app/javascript/components/lesson-preview/components/lesson-content-input.jsx#L10) please?",ruby,1,1,1
